@@ -1,0 +1,87 @@
+import { EmbedBuilder, SlashCommandBuilder, type TextChannel } from 'discord.js';
+import type { Command } from '../types.js';
+import type { SessionStore } from '../services/session-store.js';
+import type { ChannelManager } from '../services/channel-manager.js';
+import type { MessageQueue } from '../services/message-queue.js';
+import { logger } from '../utils/logger.js';
+
+export function endSessionCommand(
+  sessionStore: SessionStore,
+  channelManager: ChannelManager,
+  messageQueue: MessageQueue,
+): Command {
+  return {
+    data: new SlashCommandBuilder()
+      .setName('end-session')
+      .setDescription('Archive a Claude session')
+      .addStringOption(opt =>
+        opt.setName('session-id').setDescription('Full or partial session ID').setRequired(true)
+      ),
+
+    async execute(interaction) {
+      const prefix = interaction.options.getString('session-id', true);
+      const guild = interaction.guild!;
+
+      await interaction.deferReply();
+
+      try {
+        const matches = sessionStore.findByPrefix(prefix);
+
+        if (matches.length === 0) {
+          await interaction.editReply(`No session found matching \`${prefix}\``);
+          return;
+        }
+        if (matches.length > 1) {
+          const ids = matches.map(s => `\`${s.id}\` (${s.topic})`).join('\n');
+          await interaction.editReply(`Multiple sessions match. Be more specific:\n${ids}`);
+          return;
+        }
+
+        const session = matches[0];
+
+        if (session.status === 'archived') {
+          await interaction.editReply(
+            `Session \`${session.id}\` is already archived.`
+          );
+          return;
+        }
+
+        const now = new Date().toISOString();
+
+        // Archive the session
+        await sessionStore.update(session.id, {
+          status: 'archived',
+          archivedAt: now,
+        });
+
+        // Clean up message queue
+        messageQueue.remove(session.id);
+
+        // Post archival notice and rename channel
+        try {
+          const channel = await guild.channels.fetch(session.channelId) as TextChannel | null;
+          if (channel) {
+            const embed = new EmbedBuilder()
+              .setTitle('Session Archived')
+              .setDescription(`This session has been archived. Use \`/connect-session session-id:${session.id}\` to resume.`)
+              .setColor(0xF59E0B)
+              .setTimestamp();
+
+            await channel.send({ embeds: [embed] });
+            await channelManager.renameChannelArchived(channel);
+          }
+        } catch {
+          // Channel may already be deleted
+        }
+
+        await interaction.editReply(`Session \`${session.id}\` archived.`);
+        logger.info(`Archived session ${session.id}`);
+      } catch (err) {
+        logger.error('Failed to end session:', err);
+        await interaction.editReply(
+          `Failed to archive: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
+      }
+    },
+  };
+}
