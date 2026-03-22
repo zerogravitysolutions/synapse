@@ -446,3 +446,50 @@ Possible workflows:
 - Ask the "Architect" to design a system, then the "Reviewer" to critique it
 - Have "Backend" and "Frontend" personas working on different parts
 - Assign different tool permissions per persona (read-only reviewer vs. full-access implementer)
+
+---
+
+## Contributing
+
+MindBridge is open source and contributions are welcome! Whether it's a bug fix, new feature, documentation improvement, or idea — we'd love your help.
+
+### How to Contribute
+
+1. **Fork** the repository
+2. **Create a branch** for your feature or fix: `git checkout -b feature/your-feature`
+3. **Make your changes** — follow the existing code style (TypeScript, ES modules, minimal dependencies)
+4. **Test locally** — run `npm run build` to verify TypeScript compiles, then test with a real Discord bot
+5. **Submit a Pull Request** — describe what you changed and why
+
+### Ideas for Contributions
+
+- Voice message transcription (STT) and text-to-speech responses
+- Scheduled tasks and proactive monitoring
+- User access control and rate limiting
+- Additional slash commands
+- Support for more attachment types
+- Session analytics and usage dashboards
+- Webhook-based multi-persona support
+
+### Guidelines
+
+- Keep dependencies minimal — the project has a single runtime dependency (`discord.js`) and we'd like to keep it lean
+- Follow the existing patterns: atomic writes, spawn with arg arrays (no shell), per-session queuing
+- Add clear log messages for new features
+- Update the README if your change adds configuration or commands
+
+### Reporting Issues
+
+Found a bug or have a suggestion? Open an issue on GitHub with:
+- What you expected to happen
+- What actually happened
+- Steps to reproduce (if applicable)
+- Logs or screenshots if relevant
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — you are free to use, modify, distribute, and build upon it for any purpose, personal or commercial.
+
+See [LICENSE](LICENSE) for the full text.
