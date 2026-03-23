@@ -3,9 +3,11 @@ import { EmbedBuilder, Events } from 'discord.js';
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ClaudeCli } from './claude-cli.js';
+import type { CliResult } from '../types.js';
 import type { SessionStore } from './session-store.js';
 import type { MessageQueue } from './message-queue.js';
-import type { ActivityTracker } from './activity-tracker.js';
+import type { ActivityTracker, SessionActivity } from './activity-tracker.js';
+import type { TaskController } from './task-controller.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
@@ -14,17 +16,20 @@ export class MessageHandler {
   private sessionStore: SessionStore;
   private messageQueue: MessageQueue;
   private activityTracker: ActivityTracker;
+  private taskController: TaskController;
 
   constructor(
     claudeCli: ClaudeCli,
     sessionStore: SessionStore,
     messageQueue: MessageQueue,
     activityTracker: ActivityTracker,
+    taskController: TaskController,
   ) {
     this.claudeCli = claudeCli;
     this.sessionStore = sessionStore;
     this.messageQueue = messageQueue;
     this.activityTracker = activityTracker;
+    this.taskController = taskController;
   }
 
   register(client: Client): void {
@@ -36,7 +41,6 @@ export class MessageHandler {
   }
 
   private async handleMessage(message: Message): Promise<void> {
-    // Ignore bots and DMs
     if (message.author.bot) return;
     if (!message.inGuild()) return;
 
@@ -45,26 +49,6 @@ export class MessageHandler {
 
     const content = message.content.trim();
     if (!content && !message.attachments.size) return;
-
-    // Handle prefix commands
-    if (content === '!status') {
-      await this.handleStatus(message, session.id);
-      return;
-    }
-
-    if (content === '!reset') {
-      // Must go through queue to avoid race with in-flight Claude calls
-      this.messageQueue.enqueue(session.id, async () => {
-        await this.handleReset(message, session.id);
-      });
-      return;
-    }
-
-    if (content.startsWith('!ping')) {
-      // Instant reply from activity tracker — no CLI call needed
-      await this.handlePing(message, session.id);
-      return;
-    }
 
     // Forward to Claude via queue
     this.messageQueue.enqueue(session.id, async () => {
@@ -76,11 +60,11 @@ export class MessageHandler {
     const channel = message.channel as TextChannel;
     const stopTyping = this.startTyping(channel);
 
-    // Mark session as active in tracker
     this.activityTracker.update(sessionId, 'Processing your message...');
 
+    const abortController = this.taskController.create(sessionId);
+
     try {
-      // Download any attachments so Claude can access them
       const attachmentPaths = await this.downloadAttachments(message);
       let content = message.content;
       if (attachmentPaths.length > 0) {
@@ -97,6 +81,10 @@ export class MessageHandler {
           onActivity: (description, toolName, purpose) => {
             logger.debug(`Activity update [${sessionId}]: ${description} (tool: ${toolName ?? 'none'})`);
             this.activityTracker.update(sessionId, description, toolName, purpose);
+            // Log every tool action to the step-by-step action log
+            if (toolName) {
+              this.activityTracker.logAction(sessionId, toolName, description, purpose);
+            }
           },
           onToolUse: (toolName) => {
             this.activityTracker.countTool(sessionId, toolName);
@@ -104,22 +92,48 @@ export class MessageHandler {
           onGoal: (goal) => {
             this.activityTracker.setGoal(sessionId, goal);
           },
+          onSkillUse: (skillName) => {
+            this.activityTracker.addSkill(sessionId, skillName);
+          },
         },
+        abortController,
       );
+
+      // Snapshot activity before clearing — used for summary if result is empty
+      const activity = this.activityTracker.get(sessionId);
+      const activitySnapshot = activity ? { ...activity, toolCounts: { ...activity.toolCounts }, completedSteps: [...activity.completedSteps], usedSkills: [...activity.usedSkills], actionLog: [...activity.actionLog] } : null;
 
       stopTyping();
       this.activityTracker.clear(sessionId);
+      this.taskController.remove(sessionId);
 
-      // Update session metadata
       await this.sessionStore.update(sessionId, {
         lastActiveAt: new Date().toISOString(),
         messageCount: (this.sessionStore.get(sessionId)?.messageCount ?? 0) + 1,
       });
 
-      // Collect any image/media files mentioned in the response
       const filesToSend = await this.collectAttachableFiles(result.text);
 
-      // Send response, splitting if needed — attach files to the last chunk
+      // Handle empty responses — build a summary from activity data
+      if (!result.text.trim()) {
+        if (result.isError) {
+          logger.warn(`Claude returned an empty error for session ${sessionId}`);
+          await channel.send({ embeds: [new EmbedBuilder().setDescription('Claude returned an error with no details.').setColor(0xEF4444)] });
+        } else {
+          const summary = this.buildActivitySummary(activitySnapshot, result);
+          const summaryChunks = splitMessage(summary);
+          for (let i = 0; i < summaryChunks.length; i++) {
+            const isLast = i === summaryChunks.length - 1;
+            if (isLast && filesToSend.length > 0) {
+              await channel.send({ content: summaryChunks[i], files: filesToSend });
+            } else {
+              await channel.send(summaryChunks[i]);
+            }
+          }
+        }
+        return;
+      }
+
       const chunks = splitMessage(result.text);
       for (let i = 0; i < chunks.length; i++) {
         const isLast = i === chunks.length - 1;
@@ -136,6 +150,11 @@ export class MessageHandler {
     } catch (err) {
       stopTyping();
       this.activityTracker.clear(sessionId);
+      this.taskController.remove(sessionId);
+
+      // User cancelled via /stop — don't show error
+      if (abortController.signal.aborted) return;
+
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       logger.error(`Claude call failed for session ${sessionId}:`, err);
 
@@ -149,153 +168,6 @@ export class MessageHandler {
     }
   }
 
-  private async handleStatus(message: Message, sessionId: string): Promise<void> {
-    const session = this.sessionStore.get(sessionId);
-    if (!session) {
-      await message.reply('Session not found.');
-      return;
-    }
-
-    const lastActive = new Date(session.lastActiveAt);
-    const seconds = Math.floor((Date.now() - lastActive.getTime()) / 1000);
-    let ago: string;
-    if (seconds < 60) ago = `${seconds}s ago`;
-    else if (seconds < 3600) ago = `${Math.floor(seconds / 60)}m ago`;
-    else ago = `${Math.floor(seconds / 3600)}h ago`;
-
-    const embed = new EmbedBuilder()
-      .setTitle('Session Status')
-      .setColor(0x7C3AED)
-      .addFields(
-        { name: 'Session ID', value: `\`${sessionId}\``, inline: false },
-        { name: 'Messages', value: String(session.messageCount), inline: true },
-        { name: 'Last Active', value: ago, inline: true },
-      );
-
-    await message.reply({ embeds: [embed] });
-  }
-
-  private async handleReset(message: Message, oldSessionId: string): Promise<void> {
-    const channel = message.channel as TextChannel;
-    const session = this.sessionStore.get(oldSessionId);
-    if (!session) {
-      await message.reply('Session not found.');
-      return;
-    }
-
-    try {
-      // Archive old session
-      await this.sessionStore.update(oldSessionId, {
-        status: 'archived',
-        archivedAt: new Date().toISOString(),
-      });
-      this.messageQueue.remove(oldSessionId);
-      this.activityTracker.clear(oldSessionId);
-
-      // Start a fresh session
-      const result = await this.claudeCli.startSession(
-        `You are starting a fresh session. The topic is: ${session.topic}. The previous session was reset by the user. Introduce yourself briefly.`
-      );
-
-      // Create new session pointing to the same channel
-      const now = new Date().toISOString();
-      await this.sessionStore.create({
-        id: result.sessionId,
-        topic: session.topic,
-        status: 'active',
-        channelId: channel.id,
-        guildId: session.guildId,
-        createdAt: now,
-        lastActiveAt: now,
-        messageCount: 1,
-      });
-
-      // Update channel topic
-      await channel.setTopic(`Session: ${result.sessionId} | Topic: ${session.topic}`);
-
-      const embed = new EmbedBuilder()
-        .setTitle('Session Reset')
-        .setDescription(result.text.slice(0, 4096))
-        .setColor(0x10B981)
-        .setFooter({ text: `New Session ID: ${result.sessionId}` })
-        .setTimestamp();
-
-      await channel.send({ embeds: [embed] });
-      logger.info(`Reset session in channel ${channel.id}: ${oldSessionId} -> ${result.sessionId}`);
-    } catch (err) {
-      logger.error('Failed to reset session:', err);
-      await message.reply(`Failed to reset: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  }
-
-  private async handlePing(message: Message, sessionId: string): Promise<void> {
-    logger.debug(`Ping requested for session ${sessionId}, tracker active: ${this.activityTracker.isActive(sessionId)}`);
-    const activity = this.activityTracker.get(sessionId);
-
-    if (!activity) {
-      await message.reply('> **ping** — No active task. Claude is idle.');
-      return;
-    }
-
-    const elapsed = Math.floor((Date.now() - activity.startedAt) / 1000);
-    let duration: string;
-    if (elapsed < 60) duration = `${elapsed}s`;
-    else if (elapsed < 3600) duration = `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-    else duration = `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
-
-    const counts = activity.toolCounts;
-    const totalSteps = Object.values(counts).reduce((a, b) => a + b, 0);
-    const parts: string[] = [];
-
-    // The overarching goal
-    if (activity.goal) {
-      parts.push(`I'm working on **${activity.goal.toLowerCase()}**.`);
-    } else {
-      parts.push(`I'm working on your request.`);
-    }
-
-    // What's been done so far
-    if (totalSteps > 0) {
-      const done: string[] = [];
-      if (counts.Read) done.push(`read ${counts.Read} file${counts.Read > 1 ? 's' : ''}`);
-      if (counts.Edit) done.push(`edited ${counts.Edit} file${counts.Edit > 1 ? 's' : ''}`);
-      if (counts.Write) done.push(`written ${counts.Write} file${counts.Write > 1 ? 's' : ''}`);
-      if (counts.Bash) done.push(`ran ${counts.Bash} command${counts.Bash > 1 ? 's' : ''}`);
-      if (counts.Grep) done.push(`searched the code ${counts.Grep} time${counts.Grep > 1 ? 's' : ''}`);
-      if (counts.Glob) done.push(`looked up file patterns ${counts.Glob} time${counts.Glob > 1 ? 's' : ''}`);
-      if (counts.Agent) done.push(`ran ${counts.Agent} sub-task${counts.Agent > 1 ? 's' : ''}`);
-      if (counts.WebSearch) done.push(`searched the web ${counts.WebSearch} time${counts.WebSearch > 1 ? 's' : ''}`);
-      for (const [tool, count] of Object.entries(counts)) {
-        if (!['Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch'].includes(tool)) {
-          done.push(`used ${tool} ${count} time${count > 1 ? 's' : ''}`);
-        }
-      }
-      const last = done.pop()!;
-      const doneStr = done.length > 0 ? `${done.join(', ')} and ${last}` : last;
-      parts.push(`So far I've ${doneStr}.`);
-    }
-
-    // Current action + purpose
-    const current = activity.description;
-    if (!this.isGenericActivity(current)) {
-      let nowStr = `Right now I'm ${current.toLowerCase()}`;
-      if (activity.purpose) {
-        nowStr += ` — ${activity.purpose}`;
-      }
-      parts.push(nowStr.endsWith('.') ? nowStr : `${nowStr}.`);
-    } else if (totalSteps > 0) {
-      parts.push(`Now I'm putting it all together for the response.`);
-    }
-
-    parts.push(`Been at it for about **${duration}**.`);
-
-    await message.reply(`> ${parts.join(' ')}`);
-  }
-
-  private isGenericActivity(desc: string): boolean {
-    return ['processing your message...', 'claude is thinking...', 'generating response...'].includes(desc.toLowerCase());
-  }
-
   private startTyping(channel: TextChannel): () => void {
     channel.sendTyping().catch(() => {});
     const interval = setInterval(() => {
@@ -304,7 +176,6 @@ export class MessageHandler {
     return () => clearInterval(interval);
   }
 
-  /** Download Discord attachments to a temp directory so Claude can read them. */
   private async downloadAttachments(message: Message): Promise<string[]> {
     if (!message.attachments.size) return [];
 
@@ -312,7 +183,7 @@ export class MessageHandler {
     await mkdir(uploadDir, { recursive: true });
 
     const paths: string[] = [];
-    const maxSize = 25 * 1024 * 1024; // 25 MB
+    const maxSize = 25 * 1024 * 1024;
 
     for (const [, attachment] of message.attachments) {
       if (attachment.size > maxSize) {
@@ -342,9 +213,7 @@ export class MessageHandler {
     return paths;
   }
 
-  /** Scan response text for file paths and return those that exist. */
   private async collectAttachableFiles(text: string): Promise<string[]> {
-    // Match absolute paths with a file extension (e.g. /workspace/project/settings.gradle)
     const FILE_PATH_RE = /(\/[\w\-.\/]+\.\w+)\b/g;
 
     const matches = [...text.matchAll(FILE_PATH_RE)];
@@ -354,7 +223,7 @@ export class MessageHandler {
     let totalSize = 0;
     const maxTotal = 25 * 1024 * 1024;
     const maxFiles = 10;
-    const maxPerFile = 8 * 1024 * 1024; // 8 MB per file
+    const maxPerFile = 8 * 1024 * 1024;
 
     for (const filePath of candidates) {
       if (files.length >= maxFiles) break;
@@ -369,7 +238,7 @@ export class MessageHandler {
         totalSize += stats.size;
         logger.info(`Attaching file from response: ${filePath} (${this.formatSize(stats.size)})`);
       } catch {
-        // File doesn't exist or can't be accessed — skip
+        // File doesn't exist or can't be accessed
       }
     }
 
@@ -380,5 +249,62 @@ export class MessageHandler {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  /** Build a human-readable summary from activity data when Claude returns no text. */
+  private buildActivitySummary(activity: SessionActivity | null, result: CliResult): string {
+    const parts: string[] = [];
+
+    parts.push('**Task completed** (no text response from Claude)\n');
+
+    if (activity?.goal) {
+      parts.push(`> **Goal:** ${activity.goal}\n`);
+    }
+
+    // Full action log — step-by-step what happened
+    if (activity?.actionLog && activity.actionLog.length > 0) {
+      parts.push('**Actions performed:**');
+      for (let i = 0; i < activity.actionLog.length; i++) {
+        const action = activity.actionLog[i];
+        let line = `${i + 1}. **${action.toolName}** — ${action.description}`;
+        if (action.purpose) {
+          line += ` *(${action.purpose})*`;
+        }
+        parts.push(line);
+      }
+      parts.push('');
+    }
+
+    // Tool usage totals
+    if (activity?.toolCounts) {
+      const counts = activity.toolCounts;
+      const totalTools = Object.values(counts).reduce((a, b) => a + b, 0);
+      if (totalTools > 0) {
+        const toolParts: string[] = [];
+        for (const [tool, count] of Object.entries(counts)) {
+          toolParts.push(`${tool} x${count}`);
+        }
+        parts.push(`**Totals:** ${toolParts.join(', ')}`);
+      }
+    }
+
+    // Skills used
+    if (activity?.usedSkills && activity.usedSkills.length > 0) {
+      parts.push(`**Skills:** ${activity.usedSkills.join(', ')}`);
+    }
+
+    // Duration and cost
+    const durationSec = Math.floor(result.durationMs / 1000);
+    let duration: string;
+    if (durationSec < 60) duration = `${durationSec}s`;
+    else if (durationSec < 3600) duration = `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`;
+    else duration = `${Math.floor(durationSec / 3600)}h ${Math.floor((durationSec % 3600) / 60)}m`;
+
+    parts.push(`**Duration:** ${duration}`);
+    if (result.costUsd > 0) {
+      parts.push(`**Cost:** $${result.costUsd.toFixed(4)}`);
+    }
+
+    return parts.join('\n');
   }
 }

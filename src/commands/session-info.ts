@@ -1,12 +1,17 @@
 import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import type { Command } from '../types.js';
 import type { SessionStore } from '../services/session-store.js';
+import type { ActivityTracker } from '../services/activity-tracker.js';
+import { formatActivity } from '../utils/format-activity.js';
 
-export function sessionInfoCommand(sessionStore: SessionStore): Command {
+export function sessionInfoCommand(
+  sessionStore: SessionStore,
+  activityTracker: ActivityTracker,
+): Command {
   return {
     data: new SlashCommandBuilder()
       .setName('session-info')
-      .setDescription('Show info about the current session (use in a session channel)'),
+      .setDescription('Show info about the current session'),
 
     async execute(interaction) {
       const session = sessionStore.findByChannelId(interaction.channelId);
@@ -19,15 +24,34 @@ export function sessionInfoCommand(sessionStore: SessionStore): Command {
         return;
       }
 
+      // If Claude is actively working, show the activity embed
+      const activity = activityTracker.get(session.id);
+      if (activity) {
+        const statusEmbed = new EmbedBuilder()
+          .setTitle(session.topic)
+          .setColor(0x3B82F6)
+          .addFields(
+            { name: 'Status', value: `\`${session.status}\``, inline: true },
+            { name: 'Messages', value: `\`${session.messageCount}\``, inline: true },
+            { name: 'Session ID', value: `\`${session.id}\``, inline: false },
+          )
+          .setTimestamp();
+
+        const activityText = formatActivity(activity);
+        await interaction.reply({ content: activityText, embeds: [statusEmbed] });
+        return;
+      }
+
+      // Idle — show session info only
       const embed = new EmbedBuilder()
-        .setTitle(`Session: ${session.topic}`)
-        .setColor(session.status === 'active' ? 0x7C3AED : 0xF59E0B)
+        .setTitle(session.topic)
+        .setDescription('Claude is idle — send a message to start working.')
+        .setColor(0x3B82F6)
         .addFields(
-          { name: 'Status', value: session.status, inline: true },
-          { name: 'Messages', value: String(session.messageCount), inline: true },
-          { name: 'Session ID', value: `\`${session.id}\``, inline: false },
-          { name: 'Created', value: `<t:${Math.floor(new Date(session.createdAt).getTime() / 1000)}:R>`, inline: true },
+          { name: 'Status', value: `\`${session.status}\``, inline: true },
+          { name: 'Messages', value: `\`${session.messageCount}\``, inline: true },
           { name: 'Last Active', value: `<t:${Math.floor(new Date(session.lastActiveAt).getTime() / 1000)}:R>`, inline: true },
+          { name: 'Session ID', value: `\`${session.id}\``, inline: false },
         )
         .setTimestamp();
 

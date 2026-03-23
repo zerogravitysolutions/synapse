@@ -6,12 +6,17 @@ import { MessageQueue } from './services/message-queue.js';
 import { ChannelManager } from './services/channel-manager.js';
 import { MessageHandler } from './services/message-handler.js';
 import { ActivityTracker } from './services/activity-tracker.js';
+import { TaskController } from './services/task-controller.js';
 import { registerCommands } from './commands/index.js';
 import { newSessionCommand } from './commands/new-session.js';
 import { listSessionsCommand } from './commands/list-sessions.js';
 import { connectSessionCommand } from './commands/connect-session.js';
 import { endSessionCommand } from './commands/end-session.js';
 import { sessionInfoCommand } from './commands/session-info.js';
+import { pingCommand } from './commands/ping.js';
+import { pingmeCommand } from './commands/pingme.js';
+import { stopCommand } from './commands/stop.js';
+import { resetCommand } from './commands/reset.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -22,6 +27,7 @@ async function main() {
   const sessionStore = new SessionStore(config.sessionFilePath);
   const messageQueue = new MessageQueue();
   const activityTracker = new ActivityTracker();
+  const taskController = new TaskController();
   const channelManager = new ChannelManager(config.categoryName);
 
   // Load persisted sessions
@@ -33,7 +39,11 @@ async function main() {
     listSessionsCommand(sessionStore),
     connectSessionCommand(claudeCli, sessionStore, channelManager),
     endSessionCommand(sessionStore, channelManager, messageQueue),
-    sessionInfoCommand(sessionStore),
+    sessionInfoCommand(sessionStore, activityTracker),
+    pingCommand(sessionStore, activityTracker),
+    pingmeCommand(sessionStore, activityTracker),
+    stopCommand(sessionStore, activityTracker, messageQueue, taskController),
+    resetCommand(claudeCli, sessionStore, messageQueue, activityTracker),
   ];
 
   // Create bot and register commands
@@ -48,6 +58,7 @@ async function main() {
     sessionStore,
     messageQueue,
     activityTracker,
+    taskController,
   );
   messageHandler.register(bot.client);
 

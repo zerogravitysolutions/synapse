@@ -31,7 +31,9 @@ User message in Discord
 - `src/services/session-store.ts` — Session CRUD with atomic JSON persistence (tmp + rename)
 - `src/services/message-queue.ts` — Per-session promise-chain queue
 - `src/services/channel-manager.ts` — Discord category + channel creation/renaming
-- `src/commands/` — 5 slash commands: new-session, list-sessions, connect-session, end-session, session-info
+- `src/commands/` — 9 slash commands: new-session, list-sessions, connect-session, end-session, session-info, ping, pingme, stop, reset
+- `src/services/task-controller.ts` — Shared abort controller manager for /stop
+- `src/utils/format-activity.ts` — Shared activity formatting for !ping and /pingme
 - `src/utils/split-message.ts` — Code-block-aware message splitting for Discord's 2000 char limit
 
 ## Important Patterns

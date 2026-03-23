@@ -11,6 +11,8 @@ const DISCORD_SYSTEM_PROMPT = [
   '- Keep lines short. Use blank lines to separate sections.',
   '- Use > blockquotes for callouts.',
   '- For structured data, use bold labels like: **Name:** value',
+  '- NEVER end your response with a todo list or checklist. If you need to show todos or next steps, place them BEFORE your final summary or conclusion.',
+  '- Always end your response with a well-formatted markdown summary or conclusion. The last thing the user reads should be a clear, polished wrap-up — not a raw list, dangling bullet points, or incomplete thoughts.',
 ].join('\n');
 
 export class ClaudeCli {
@@ -52,7 +54,9 @@ export class ClaudeCli {
       onActivity: (description: string, toolName?: string, purpose?: string) => void;
       onToolUse: (toolName: string) => void;
       onGoal: (goal: string) => void;
+      onSkillUse?: (skillName: string) => void;
     },
+    externalAbort?: AbortController,
   ): Promise<CliResult> {
     const args = [
       '-p',
@@ -64,7 +68,7 @@ export class ClaudeCli {
       message,
     ];
 
-    const controller = new AbortController();
+    const controller = externalAbort ?? new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
     const startTime = Date.now();
 
@@ -145,9 +149,14 @@ export class ClaudeCli {
                   if (block.type === 'tool_use' && block.name) {
                     currentToolName = block.name;
                     onToolUse(block.name);
-                    const desc = this.describeToolUse(block.name);
+                    const desc = this.describeToolUse(block.name, block.input);
                     const purpose = this.extractPurpose(lastTextBlock);
                     onActivity(desc, block.name, purpose ?? undefined);
+
+                    // Track skill invocations
+                    if (block.name === 'Skill' && block.input?.skill) {
+                      callbacks.onSkillUse?.(String(block.input.skill));
+                    }
                   }
                 }
 
@@ -163,7 +172,7 @@ export class ClaudeCli {
               if (event.type === 'result') {
                 gotResult = true;
                 resultSessionId = event.session_id ?? sessionId;
-                resultText = event.result ?? resultText;
+                resultText = resultText || event.result || '';
                 isError = event.is_error ?? false;
                 costUsd = event.total_cost_usd ?? 0;
               }
@@ -186,7 +195,7 @@ export class ClaudeCli {
               if (event.type === 'result') {
                 gotResult = true;
                 resultSessionId = event.session_id ?? sessionId;
-                resultText = event.result ?? resultText;
+                resultText = resultText || event.result || '';
                 isError = event.is_error ?? false;
                 costUsd = event.total_cost_usd ?? 0;
               }
@@ -235,8 +244,11 @@ export class ClaudeCli {
     }
   }
 
-  private describeToolUse(toolName: string): string {
-    const descriptions: Record<string, string> = {
+  private describeToolUse(toolName: string, input?: Record<string, unknown>): string {
+    const detail = this.extractToolDetail(toolName, input);
+    if (detail) return detail;
+
+    const fallbacks: Record<string, string> = {
       Bash: 'Running a shell command',
       Edit: 'Editing a file',
       Read: 'Reading a file',
@@ -248,7 +260,63 @@ export class ClaudeCli {
       WebFetch: 'Fetching a URL',
       NotebookEdit: 'Editing a notebook',
     };
-    return descriptions[toolName] ?? `Using ${toolName}`;
+    return fallbacks[toolName] ?? `Using ${toolName}`;
+  }
+
+  /** Extract a specific detail from tool input for richer activity descriptions. */
+  private extractToolDetail(toolName: string, input?: Record<string, unknown>): string | undefined {
+    if (!input) return undefined;
+
+    const shorten = (path: string) => {
+      // Show last 2 path segments: "src/services/auth.ts"
+      const parts = path.split('/');
+      return parts.length > 2 ? parts.slice(-2).join('/') : path;
+    };
+
+    switch (toolName) {
+      case 'Read': {
+        const fp = input.file_path as string | undefined;
+        return fp ? `Reading \`${shorten(fp)}\`` : undefined;
+      }
+      case 'Edit': {
+        const fp = input.file_path as string | undefined;
+        return fp ? `Editing \`${shorten(fp)}\`` : undefined;
+      }
+      case 'Write': {
+        const fp = input.file_path as string | undefined;
+        return fp ? `Writing \`${shorten(fp)}\`` : undefined;
+      }
+      case 'Bash': {
+        const cmd = input.command as string | undefined;
+        if (!cmd) return undefined;
+        const short = cmd.length > 60 ? cmd.slice(0, 60) + '...' : cmd;
+        return `Running \`${short}\``;
+      }
+      case 'Grep': {
+        const pat = input.pattern as string | undefined;
+        return pat ? `Searching for \`${pat.slice(0, 40)}\`` : undefined;
+      }
+      case 'Glob': {
+        const pat = input.pattern as string | undefined;
+        return pat ? `Finding files matching \`${pat.slice(0, 40)}\`` : undefined;
+      }
+      case 'Agent': {
+        const prompt = input.prompt as string | undefined;
+        if (!prompt) return undefined;
+        const first = prompt.split('\n')[0].slice(0, 60);
+        return `Running sub-agent: ${first}`;
+      }
+      case 'WebSearch': {
+        const q = input.query as string | undefined;
+        return q ? `Searching the web for "${q.slice(0, 50)}"` : undefined;
+      }
+      case 'WebFetch': {
+        const url = input.url as string | undefined;
+        return url ? `Fetching ${url.slice(0, 60)}` : undefined;
+      }
+      default:
+        return undefined;
+    }
   }
 
   /** Extract purpose/intent from Claude's text preceding a tool call. */
