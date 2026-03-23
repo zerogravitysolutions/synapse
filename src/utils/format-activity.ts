@@ -10,7 +10,7 @@ export function formatActivity(activity: SessionActivity): string {
   const goal = activity.goal ?? 'Your request';
   const paragraphs: string[] = [];
 
-  // First paragraph: goal + what's been done (always bullet points)
+  // Goal + completed steps
   if (activity.completedSteps.length > 0) {
     paragraphs.push(`I'm working on **${goal}**. So far I've:`);
     paragraphs.push(activity.completedSteps.map(s => `- ${s}`).join('\n'));
@@ -18,7 +18,17 @@ export function formatActivity(activity: SessionActivity): string {
     paragraphs.push(`I'm working on **${goal}**.`);
   }
 
-  // Second paragraph: tools + skills
+  // Task plan (from TodoWrite)
+  if (activity.todos.length > 0) {
+    const todoLines = activity.todos.map(t => {
+      if (t.status === 'completed') return `- [x] ~~${t.content}~~`;
+      if (t.status === 'in_progress') return `- [ ] **${t.content}** *(in progress)*`;
+      return `- [ ] ${t.content}`;
+    });
+    paragraphs.push(`**Tasks:**\n${todoLines.join('\n')}`);
+  }
+
+  // Tools + skills
   const meta: string[] = [];
   const counts = activity.toolCounts;
   const totalSteps = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -34,13 +44,12 @@ export function formatActivity(activity: SessionActivity): string {
     paragraphs.push(meta.join(' '));
   }
 
-  // Third paragraph: what's left + current action
+  // What's left + current action
   const current = activity.description;
   const generic = ['processing your message...', 'claude is thinking...', 'generating response...'];
   const now: string[] = [];
 
   if (activity.purpose) {
-    // Split purpose by common delimiters to detect multiple items
     const purposes = activity.purpose
       .split(/(?:,\s*(?:and\s+)?|;\s*|\.\s+)/)
       .map(s => s.trim())
@@ -83,7 +92,7 @@ function formatToolSummary(counts: Record<string, number>): string | null {
   if (counts.Agent) done.push(`ran ${counts.Agent} sub-task${counts.Agent > 1 ? 's' : ''}`);
   if (counts.WebSearch) done.push(`web searched ${counts.WebSearch}x`);
   for (const [tool, count] of Object.entries(counts)) {
-    if (!['Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch', 'Skill'].includes(tool)) {
+    if (!['Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Agent', 'WebSearch', 'Skill', 'TodoWrite', 'TodoRead'].includes(tool)) {
       done.push(`used ${tool} ${count}x`);
     }
   }

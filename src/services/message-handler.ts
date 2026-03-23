@@ -95,6 +95,16 @@ export class MessageHandler {
           onSkillUse: (skillName) => {
             this.activityTracker.addSkill(sessionId, skillName);
           },
+          onTodoUpdate: (todos) => {
+            this.activityTracker.updateTodos(sessionId, todos.map(t => ({
+              id: String(t.id),
+              content: String(t.content),
+              status: (t.status === 'completed' ? 'completed' : t.status === 'in_progress' ? 'in_progress' : 'pending') as 'pending' | 'in_progress' | 'completed',
+            })));
+          },
+          onToolComplete: () => {
+            this.taskController.checkGracefulStop(sessionId);
+          },
         },
         abortController,
       );

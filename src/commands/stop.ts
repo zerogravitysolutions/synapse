@@ -6,6 +6,8 @@ import type { MessageQueue } from '../services/message-queue.js';
 import type { TaskController } from '../services/task-controller.js';
 import { logger } from '../utils/logger.js';
 
+const FILE_TOOLS = new Set(['Edit', 'Write']);
+
 export function stopCommand(
   sessionStore: SessionStore,
   activityTracker: ActivityTracker,
@@ -15,7 +17,7 @@ export function stopCommand(
   return {
     data: new SlashCommandBuilder()
       .setName('stop')
-      .setDescription('Cancel the running task'),
+      .setDescription('Cancel the running task (waits for file edits to finish)'),
 
     async execute(interaction) {
       const session = sessionStore.findByChannelId(interaction.channelId);
@@ -24,16 +26,28 @@ export function stopCommand(
         return;
       }
 
-      if (!taskController.abort(session.id)) {
+      if (!taskController.has(session.id)) {
         await interaction.reply('No task running.');
         return;
       }
 
-      messageQueue.remove(session.id);
-      activityTracker.clear(session.id);
+      const activity = activityTracker.get(session.id);
+      const currentTool = activity?.toolName;
 
-      await interaction.reply('Task cancelled.');
-      logger.info(`User stopped task for session ${session.id}`);
+      if (currentTool && FILE_TOOLS.has(currentTool)) {
+        // Graceful — wait for file edit/write to finish, then kill
+        taskController.requestGracefulStop(session.id);
+        messageQueue.remove(session.id);
+        await interaction.reply(`Stopping after current file operation finishes (\`${activity?.description ?? currentTool}\`)...`);
+        logger.info(`Graceful stop requested for session ${session.id} (tool: ${currentTool})`);
+      } else {
+        // Immediate — safe to kill now
+        taskController.abort(session.id);
+        messageQueue.remove(session.id);
+        activityTracker.clear(session.id);
+        await interaction.reply('Task cancelled.');
+        logger.info(`User stopped task for session ${session.id}`);
+      }
     },
   };
 }

@@ -5,7 +5,14 @@ export interface ActionLogEntry {
   timestamp: number;
 }
 
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
 export interface SessionActivity {
+  taskId: number;
   description: string;
   purpose?: string;
   goal?: string;
@@ -15,6 +22,7 @@ export interface SessionActivity {
   completedSteps: string[];
   usedSkills: string[];
   actionLog: ActionLogEntry[];
+  todos: TodoItem[];
 }
 
 export class ActivityTracker {
@@ -32,12 +40,14 @@ export class ActivityTracker {
       if (purpose) existing.purpose = purpose;
     } else {
       this.activities.set(sessionId, {
+        taskId: Date.now(),
         description, toolName, purpose,
         startedAt: Date.now(),
         toolCounts: {},
         completedSteps: [],
         usedSkills: [],
         actionLog: [],
+        todos: [],
       });
     }
   }
@@ -72,6 +82,13 @@ export class ActivityTracker {
     // Cap at 50 entries to prevent unbounded growth
     if (existing.actionLog.length > 50) {
       existing.actionLog = existing.actionLog.slice(-50);
+    }
+  }
+
+  updateTodos(sessionId: string, todos: TodoItem[]): void {
+    const existing = this.activities.get(sessionId);
+    if (existing) {
+      existing.todos = todos;
     }
   }
 

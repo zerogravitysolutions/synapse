@@ -55,6 +55,8 @@ export class ClaudeCli {
       onToolUse: (toolName: string) => void;
       onGoal: (goal: string) => void;
       onSkillUse?: (skillName: string) => void;
+      onTodoUpdate?: (todos: Array<{ id: string; content: string; status: string }>) => void;
+      onToolComplete?: () => void;
     },
     externalAbort?: AbortController,
   ): Promise<CliResult> {
@@ -110,6 +112,11 @@ export class ClaudeCli {
 
               const { onActivity, onToolUse, onGoal } = callbacks;
 
+              // Tool result — a tool just finished executing
+              if (event.type === 'user') {
+                callbacks.onToolComplete?.();
+              }
+
               // Session loaded — CLI connected and processing
               if (event.type === 'system' && event.subtype === 'init') {
                 onActivity('Claude is thinking...');
@@ -156,6 +163,11 @@ export class ClaudeCli {
                     // Track skill invocations
                     if (block.name === 'Skill' && block.input?.skill) {
                       callbacks.onSkillUse?.(String(block.input.skill));
+                    }
+
+                    // Track todo updates
+                    if (block.name === 'TodoWrite' && Array.isArray(block.input?.todos)) {
+                      callbacks.onTodoUpdate?.(block.input.todos);
                     }
                   }
                 }
@@ -289,7 +301,12 @@ export class ClaudeCli {
       case 'Bash': {
         const cmd = input.command as string | undefined;
         if (!cmd) return undefined;
-        const short = cmd.length > 60 ? cmd.slice(0, 60) + '...' : cmd;
+        // Strip comments and empty lines, take the first real command
+        const meaningful = cmd.split('\n')
+          .map(l => l.trim())
+          .filter(l => l && !l.startsWith('#'))[0] ?? cmd.split('\n')[0];
+        const clean = meaningful.replace(/\s+/g, ' ').trim();
+        const short = clean.length > 100 ? clean.slice(0, 100) + '...' : clean;
         return `Running \`${short}\``;
       }
       case 'Grep': {
