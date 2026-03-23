@@ -13,6 +13,11 @@ const DISCORD_SYSTEM_PROMPT = [
   '- For structured data, use bold labels like: **Name:** value',
   '- NEVER end your response with a todo list or checklist. If you need to show todos or next steps, place them BEFORE your final summary or conclusion.',
   '- Always end your response with a well-formatted markdown summary or conclusion. The last thing the user reads should be a clear, polished wrap-up — not a raw list, dangling bullet points, or incomplete thoughts.',
+  '',
+  'Task planning:',
+  '- ALWAYS create a todo list (using TodoWrite) before starting any work. Think thoroughly about the steps needed.',
+  '- Update the todo list as you progress — mark items complete, add new ones, remove unnecessary ones.',
+  '- The todo list should reflect your current plan at all times.',
 ].join('\n');
 
 export class ClaudeCli {
@@ -138,7 +143,7 @@ export class ClaudeCli {
                 onActivity(desc, toolName);
               }
 
-              // Assistant message — extract tool actions + accumulate result text
+              // Assistant message — extract tool actions + keep last response text
               if (event.type === 'assistant' && event.message) {
                 const msg = event.message;
                 const blocks = Array.isArray(msg.content) ? msg.content
@@ -147,10 +152,10 @@ export class ClaudeCli {
                   : [];
 
                 let lastTextBlock = '';
+                let eventText = '';
                 for (const block of blocks) {
                   if (block.type === 'text' && block.text) {
-                    totalSize += block.text.length;
-                    if (totalSize <= maxBuffer) resultText += block.text;
+                    eventText += block.text;
                     lastTextBlock = block.text;
                   }
                   if (block.type === 'tool_use' && block.name) {
@@ -172,6 +177,11 @@ export class ClaudeCli {
                   }
                 }
 
+                // Keep only the last assistant message's text (discard intermediate narration)
+                if (eventText) {
+                  resultText = eventText;
+                }
+
                 // First text from Claude becomes the goal (explains the plan)
                 if (lastTextBlock && !currentToolName) {
                   const goal = this.extractPurpose(lastTextBlock);
@@ -184,7 +194,7 @@ export class ClaudeCli {
               if (event.type === 'result') {
                 gotResult = true;
                 resultSessionId = event.session_id ?? sessionId;
-                resultText = resultText || event.result || '';
+                resultText = event.result ?? resultText;
                 isError = event.is_error ?? false;
                 costUsd = event.total_cost_usd ?? 0;
               }
@@ -207,7 +217,7 @@ export class ClaudeCli {
               if (event.type === 'result') {
                 gotResult = true;
                 resultSessionId = event.session_id ?? sessionId;
-                resultText = resultText || event.result || '';
+                resultText = event.result ?? resultText;
                 isError = event.is_error ?? false;
                 costUsd = event.total_cost_usd ?? 0;
               }
@@ -306,8 +316,7 @@ export class ClaudeCli {
           .map(l => l.trim())
           .filter(l => l && !l.startsWith('#'))[0] ?? cmd.split('\n')[0];
         const clean = meaningful.replace(/\s+/g, ' ').trim();
-        const short = clean.length > 100 ? clean.slice(0, 100) + '...' : clean;
-        return `Running \`${short}\``;
+        return `Running \`${clean}\``;
       }
       case 'Grep': {
         const pat = input.pattern as string | undefined;
@@ -347,10 +356,7 @@ export class ClaudeCli {
     if (!last || last.length < 10) return undefined;
 
     // Remove trailing punctuation
-    let purpose = last.replace(/[.!?:]+$/, '');
-
-    // Truncate long purposes
-    if (purpose.length > 120) purpose = purpose.slice(0, 120) + '...';
+    const purpose = last.replace(/[.!?:]+$/, '');
 
     return purpose;
   }

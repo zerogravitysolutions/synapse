@@ -10,10 +10,11 @@ export function formatActivity(activity: SessionActivity): string {
   const goal = activity.goal ?? 'Your request';
   const paragraphs: string[] = [];
 
-  // Goal + completed steps
-  if (activity.completedSteps.length > 0) {
-    paragraphs.push(`I'm working on **${goal}**. So far I've:`);
-    paragraphs.push(activity.completedSteps.map(s => `- ${s}`).join('\n'));
+  // Goal — bold first line only, rest as regular text
+  const goalLines = goal.split('\n');
+  const firstLine = goalLines[0];
+  if (goalLines.length > 1) {
+    paragraphs.push(`I'm working on **${firstLine}**\n${goalLines.slice(1).join('\n')}`);
   } else {
     paragraphs.push(`I'm working on **${goal}**.`);
   }
@@ -44,39 +45,21 @@ export function formatActivity(activity: SessionActivity): string {
     paragraphs.push(meta.join(' '));
   }
 
-  // What's left + current action
+  // Current action + purpose
   const current = activity.description;
   const generic = ['processing your message...', 'claude is thinking...', 'generating response...'];
-  const now: string[] = [];
 
-  if (activity.purpose) {
-    const purposes = activity.purpose
-      .split(/(?:,\s*(?:and\s+)?|;\s*|\.\s+)/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-
-    if (purposes.length > 1) {
-      now.push('Still need to:');
-      paragraphs.push(now.join(' '));
-      now.length = 0;
-      paragraphs.push(purposes.map(s => `- ${s.toLowerCase()}`).join('\n'));
-
-      if (!generic.includes(current.toLowerCase())) {
-        now.push(`Right now I'm ${current}.`);
-      }
-    } else if (!generic.includes(current.toLowerCase())) {
-      now.push(`Still need to ${activity.purpose.toLowerCase()} — right now I'm ${current}.`);
-    } else {
-      now.push(`Still need to ${activity.purpose.toLowerCase()} — putting together the response now.`);
-    }
+  if (activity.purpose && !generic.includes(current.toLowerCase())) {
+    paragraphs.push(`Right now: ${activity.purpose} — ${current}.`);
+  } else if (activity.purpose) {
+    paragraphs.push(`Right now: ${activity.purpose}.`);
   } else if (!generic.includes(current.toLowerCase())) {
-    now.push(`Right now I'm ${current}.`);
+    paragraphs.push(`Right now I'm ${current}.`);
   } else if (totalSteps > 0) {
-    now.push(`Putting it all together for the response now.`);
+    paragraphs.push(`Putting it all together for the response now.`);
   }
 
-  now.push(`Been at it for about \`${duration}\`.`);
-  paragraphs.push(now.join(' '));
+  paragraphs.push(`Been at it for about \`${duration}\`.`);
 
   return paragraphs.join('\n\n');
 }
