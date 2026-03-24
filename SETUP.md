@@ -12,7 +12,9 @@ Before starting, collect all three of these from the user:
 
 1. **Discord Bot Token** — the user must create a Discord bot manually (see Step 1) and provide the token
 2. **Discord Application ID** — also called Client ID, from the same Discord bot setup
-3. **Claude OAuth Token** — the user must run `claude setup-token` on their machine and provide the `sk-ant-oat01-...` token
+3. **Claude authentication** — ask the user which they have:
+   - **Claude Max subscription** → run `claude setup-token` to get an OAuth token (`sk-ant-oat01-...`)
+   - **Anthropic API key** → use their API key directly (`sk-ant-api03-...`, pay per usage)
 
 Also ask:
 
@@ -63,17 +65,23 @@ Ask the user to provide:
 
 ---
 
-## Step 2: Claude OAuth Token (requires user action)
+## Step 2: Claude Authentication (requires user action)
 
-Ask the user to run this command in their terminal:
+Ask the user which authentication method they want:
 
+**Option A — Claude Max subscription (no per-usage cost):**
+
+Ask them to run:
 ```bash
 claude setup-token
 ```
-
 They should follow the prompts and provide the output token (`sk-ant-oat01-...`).
 
 > **Important**: Do NOT accept tokens extracted from the macOS Keychain. Those are short-lived and will expire within hours. Only `claude setup-token` produces stable long-lived tokens.
+
+**Option B — Anthropic API key (pay per usage):**
+
+Ask them to provide their API key (`sk-ant-api03-...`). They can get one from https://console.anthropic.com/settings/keys.
 
 ---
 
@@ -90,8 +98,11 @@ Write the `.env` file with the values collected from the user:
 ```
 DISCORD_TOKEN=<bot token from Step 1>
 DISCORD_CLIENT_ID=<application ID from Step 1>
-CLAUDE_CODE_OAUTH_TOKEN=<token from Step 2>
 ```
+
+Add the authentication line based on the user's choice:
+- Max subscription: `CLAUDE_CODE_OAUTH_TOKEN=<token from Step 2>`
+- API key: `ANTHROPIC_API_KEY=<key from Step 2>`
 
 For **Native mode only**, also set:
 

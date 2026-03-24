@@ -6,7 +6,7 @@
 
 A Discord bot that bridges Discord channels with Claude Code CLI sessions. Each conversation gets its own channel, messages are forwarded to Claude, and responses are posted back — enabling persistent, multi-session AI collaboration through Discord.
 
-Runs 24/7 using a Claude Max subscription. No API key required. Works on macOS, Linux, and Windows.
+Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, Linux, and Windows.
 
 ---
 
@@ -223,7 +223,8 @@ Global slash commands take **up to 1 hour** to appear after first registration.
 |---|---|---|---|
 | `DISCORD_TOKEN` | Yes | — | Discord bot token |
 | `DISCORD_CLIENT_ID` | Yes | — | Discord application/client ID |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Yes | — | Claude OAuth token (`sk-ant-oat01-...`) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | One of these | — | Claude Max subscription token (`sk-ant-oat01-...` via `claude setup-token`) |
+| `ANTHROPIC_API_KEY` | One of these | — | Anthropic API key (`sk-ant-api03-...`, pay per usage) |
 | `SESSION_CATEGORY_NAME` | No | `CLAUDE SESSIONS` | Discord category for session channels |
 | `SESSION_FILE_PATH` | No | `/data/sessions.json` | Session persistence path. **Native**: `./data/sessions.json` |
 | `CLAUDE_CLI_PATH` | No | `claude` | Path to Claude CLI binary |
