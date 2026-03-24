@@ -7,17 +7,17 @@ Discord bot bridging channels with Claude Code CLI sessions. TypeScript + discor
 Two deployment modes: **Docker** (isolated container) and **Native** (full host access).
 
 - **[README.md](README.md)** — Features, commands, configuration, security, and architecture overview
-- **[SETUP.md](SETUP.md)** — Step-by-step setup walkthrough (Discord bot creation, OAuth token, deployment)
+- **[SETUP.md](SETUP.md)** — Agent-executable setup guide. Follow it step by step — run what you can, ask the user only for credentials and decisions
 
 ## Architecture
 
 ```
 User message in Discord
-  -> MessageHandler.handleMessage()        # routes by prefix (!status, !reset, !ping) or forwards to Claude
+  -> MessageHandler.handleMessage()        # forwards all channel messages to Claude
   -> MessageQueue.enqueue(sessionId, ...)  # per-session promise chain, prevents race conditions
   -> ClaudeCli.streamResumeSession()       # spawns: claude -p --dangerously-skip-permissions --resume <id> --output-format stream-json --verbose
   -> streaming events parsed line-by-line  # system/init, assistant (tool_use + text), system/task_started, result
-  -> ActivityTracker updated in real-time  # goal, tool counts, current action — read by !ping
+  -> ActivityTracker updated in real-time  # goal, tool counts, todos, current action — read by /ping
   -> response split + file attachments     # splitMessage() for >1900 chars, collectAttachableFiles() for mentioned paths
   -> channel.send()                        # posted to Discord
 ```
@@ -33,7 +33,7 @@ User message in Discord
 - `src/services/channel-manager.ts` — Discord category + channel creation/renaming
 - `src/commands/` — 9 slash commands: new-session, list-sessions, connect-session, end-session, session-info, ping, pingme, stop, reset
 - `src/services/task-controller.ts` — Shared abort controller manager for /stop
-- `src/utils/format-activity.ts` — Shared activity formatting for !ping and /pingme
+- `src/utils/format-activity.ts` — Shared activity formatting for /ping and /pingme
 - `src/utils/split-message.ts` — Code-block-aware message splitting for Discord's 2000 char limit
 
 ## Important Patterns

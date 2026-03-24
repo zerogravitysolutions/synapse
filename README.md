@@ -6,7 +6,7 @@
 
 A Discord bot that bridges Discord channels with Claude Code CLI sessions. Each conversation gets its own channel, messages are forwarded to Claude, and responses are posted back — enabling persistent, multi-session AI collaboration through Discord.
 
-Runs 24/7 using a Claude Max subscription. No API key required.
+Runs 24/7 using a Claude Max subscription. No API key required. Works on macOS, Linux, and Windows.
 
 ---
 
@@ -403,6 +403,7 @@ synapse/
 - **No database** — atomic JSON file persistence, nothing to install or maintain
 
 ---
+
 ## Future Ideas
 
 ### Multiple Claude Personalities via Webhooks
