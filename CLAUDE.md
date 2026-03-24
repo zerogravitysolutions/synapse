@@ -54,7 +54,7 @@ User message in Discord
 
 ## Docker Volumes
 
-- `mindbridge-claude` → `/home/mindbridge/.claude` (session history)
+- `~/.claude` → `/home/mindbridge/.claude` (session history, shared with host)
 - `mindbridge-data` → `/data` (sessions.json)
 - `~/Documents/workspace` → `/workspace` (project files, read/write)
 - Docker socket → `/var/run/docker.sock` (so Claude can run Docker commands)
