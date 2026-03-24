@@ -6,11 +6,12 @@ services:
     init: true
     env_file: .env
     volumes:
-      - ~/.claude:/home/mindbridge/.claude
+      - mindbridge-claude:/home/mindbridge/.claude
       - mindbridge-data:/data
       - ~/Documents/workspace:/workspace
       - /var/run/docker.sock:/var/run/docker.sock
     stop_grace_period: 30s
 
 volumes:
+  mindbridge-claude:
   mindbridge-data:

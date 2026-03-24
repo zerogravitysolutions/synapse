@@ -250,8 +250,8 @@ Global slash commands take **up to 1 hour** to appear after first registration.
 | Mount | Container Path | Access | Purpose |
 |---|---|---|---|
 | `~/Documents/workspace` | `/workspace` | Read/Write | Your project files |
-| `~/.claude` | `/home/mindbridge/.claude` | Read/Write | Claude session history (shared with host) |
 | Docker socket | `/var/run/docker.sock` | Read/Write | Run Docker commands |
+| Named volume | `/home/mindbridge/.claude` | Read/Write | Claude session history |
 | Named volume | `/data` | Read/Write | Session store persistence |
 
 In Docker mode, only Node.js and Docker CLI are available. To run Gradle tests, Claude uses Docker: `docker run -v /workspace/project:/app gradle:jdk21 gradle test`.
