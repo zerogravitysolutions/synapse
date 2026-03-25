@@ -5,18 +5,21 @@ import type { ClaudeCli } from '../services/claude-cli.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
-export function nudgeCommand(
+// Track forked session IDs per main session
+const forkSessions = new Map<string, string>();
+
+export function asideCommand(
   sessionStore: SessionStore,
   claudeCli: ClaudeCli,
 ): Command {
   return {
     data: new SlashCommandBuilder()
-      .setName('nudge')
-      .setDescription('Send a parallel instruction to Claude without interrupting the current task')
+      .setName('aside')
+      .setDescription('Ask Claude a side question without interrupting the running task')
       .addStringOption(option =>
         option
           .setName('message')
-          .setDescription('Instruction to send alongside the running task')
+          .setDescription('Your question or instruction — runs in parallel with the current task')
           .setRequired(true)
       ),
 
@@ -27,37 +30,49 @@ export function nudgeCommand(
         return;
       }
 
-      const nudgeMessage = interaction.options.getString('message', true);
+      const asideMessage = interaction.options.getString('message', true);
+      const existingFork = forkSessions.get(session.id);
 
-      // Acknowledge immediately — the parallel call may take a while
-      await interaction.reply(`> **Nudge sent** — running in parallel with the current task...\n> *"${nudgeMessage}"*`);
+      await interaction.deferReply();
 
       const channel = interaction.channel as TextChannel;
 
-      logger.info(`Nudge sent to session ${session.id}: "${nudgeMessage}"`);
-
       try {
-        // Fork the session — preserves full context, avoids race conditions with the running task
-        const result = await claudeCli.forkSession(
-          session.id,
-          `[Parallel nudge from user — respond to this while your current task continues]: ${nudgeMessage}`,
-        );
+        let result;
+
+        if (existingFork) {
+          // Resume existing fork
+          logger.info(`Aside (resume fork ${existingFork}) for session ${session.id}: "${asideMessage}"`);
+          try {
+            result = await claudeCli.resumeSession(existingFork, asideMessage);
+          } catch {
+            // Fork session lost — create a new one
+            logger.info(`Fork ${existingFork} not found, creating new fork`);
+            forkSessions.delete(session.id);
+            result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`);
+            forkSessions.set(session.id, result.sessionId);
+          }
+        } else {
+          // First aside — fork the session
+          logger.info(`Aside (new fork) for session ${session.id}: "${asideMessage}"`);
+          result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`);
+          forkSessions.set(session.id, result.sessionId);
+        }
 
         if (!result.text.trim()) {
-          await channel.send('> **Nudge:** Claude acknowledged but returned no text.');
+          await interaction.editReply('> **Aside:** Claude acknowledged but returned no text.');
           return;
         }
 
-        const prefix = '> **Nudge response:**\n';
         const chunks = splitMessage(result.text);
-        await channel.send(prefix + chunks[0]);
+        await interaction.editReply(`> **Aside:**\n${chunks[0]}`);
         for (let i = 1; i < chunks.length; i++) {
           await channel.send(chunks[i]);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        logger.error(`Nudge failed for session ${session.id}:`, err);
-        await channel.send(`> **Nudge failed:** ${errorMessage}`);
+        logger.error(`Aside failed for session ${session.id}:`, err);
+        await interaction.editReply(`> **Aside failed:** ${errorMessage}`);
       }
     },
   };

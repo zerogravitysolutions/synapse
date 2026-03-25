@@ -165,7 +165,7 @@ export class MessageHandler {
       const injectMessage = this.taskController.consumeInject(sessionId);
       this.taskController.remove(sessionId);
 
-      // Aborted — either /stop or /inject
+      // Aborted — either /stop or /interrupt
       if (abortController.signal.aborted) {
         if (injectMessage) {
           // Re-enqueue the inject message as the next task

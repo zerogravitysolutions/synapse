@@ -57,7 +57,8 @@ export class ClaudeCli {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
-      '--fork-session', sessionId,
+      '--resume', sessionId,
+      '--fork-session',
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,

@@ -43,6 +43,8 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 | `/ping` | Check what Claude is doing right now (instant, reads from memory) |
 | `/pingme interval:"10m"` | Get automatic progress updates at a set interval (use `stop` to cancel) |
 | `/stop` | Cancel the running task (kills the CLI process) |
+| `/aside message:"..."` | Send a parallel question without interrupting the running task (forks the session, runs alongside) |
+| `/interrupt message:"..."` | Stop the current task at the next tool boundary and redirect Claude to a new instruction |
 
 Every message in a session channel is forwarded to Claude — just type normally.
 
