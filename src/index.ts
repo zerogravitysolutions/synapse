@@ -17,6 +17,8 @@ import { pingCommand } from './commands/ping.js';
 import { pingmeCommand } from './commands/pingme.js';
 import { stopCommand } from './commands/stop.js';
 import { resetCommand } from './commands/reset.js';
+import { nudgeCommand } from './commands/nudge.js';
+import { injectCommand } from './commands/inject.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -40,10 +42,12 @@ async function main() {
     connectSessionCommand(claudeCli, sessionStore, channelManager),
     endSessionCommand(sessionStore, channelManager, messageQueue),
     sessionInfoCommand(sessionStore, activityTracker),
-    pingCommand(sessionStore, activityTracker),
+    pingCommand(sessionStore, activityTracker, claudeCli, taskController),
     pingmeCommand(sessionStore, activityTracker),
     stopCommand(sessionStore, activityTracker, messageQueue, taskController),
     resetCommand(claudeCli, sessionStore, messageQueue, activityTracker),
+    nudgeCommand(sessionStore, claudeCli),
+    injectCommand(sessionStore, activityTracker, taskController),
   ];
 
   // Create bot and register commands

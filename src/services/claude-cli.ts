@@ -52,6 +52,18 @@ export class ClaudeCli {
     ]);
   }
 
+  /** Fork a session and send a message — safe for parallel use, no race condition with the parent. */
+  async forkSession(sessionId: string, message: string): Promise<CliResult> {
+    return this.execute([
+      '-p',
+      '--dangerously-skip-permissions',
+      '--fork-session', sessionId,
+      '--system-prompt', DISCORD_SYSTEM_PROMPT,
+      '--output-format', 'json',
+      message,
+    ]);
+  }
+
   async streamResumeSession(
     sessionId: string,
     message: string,

@@ -160,10 +160,22 @@ export class MessageHandler {
     } catch (err) {
       stopTyping();
       this.activityTracker.clear(sessionId);
+
+      // Check for pending inject before removing — consume it first
+      const injectMessage = this.taskController.consumeInject(sessionId);
       this.taskController.remove(sessionId);
 
-      // User cancelled via /stop — don't show error
-      if (abortController.signal.aborted) return;
+      // Aborted — either /stop or /inject
+      if (abortController.signal.aborted) {
+        if (injectMessage) {
+          // Re-enqueue the inject message as the next task
+          logger.info(`Inject triggered for session ${sessionId}: "${injectMessage}"`);
+          this.messageQueue.enqueue(sessionId, async () => {
+            await this.sendInject(channel, sessionId, injectMessage);
+          });
+        }
+        return;
+      }
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       logger.error(`Claude call failed for session ${sessionId}:`, err);
@@ -175,6 +187,63 @@ export class MessageHandler {
         .setTimestamp();
 
       await channel.send({ embeds: [embed] });
+    }
+  }
+
+  /** Send an inject message to Claude — stops at tool boundary, sends, then waits for user. */
+  private async sendInject(channel: TextChannel, sessionId: string, injectMessage: string): Promise<void> {
+    const stopTyping = this.startTyping(channel);
+    this.activityTracker.update(sessionId, 'Processing inject...');
+    const abortController = this.taskController.create(sessionId);
+
+    try {
+      const content = `[Inject from user — handle this instruction, then stop and wait for further input. Do NOT resume the previous task automatically]: ${injectMessage}`;
+
+      const result = await this.claudeCli.streamResumeSession(
+        sessionId,
+        content,
+        {
+          onActivity: (description, toolName, purpose) => {
+            this.activityTracker.update(sessionId, description, toolName, purpose);
+          },
+          onToolUse: (toolName) => {
+            this.activityTracker.countTool(sessionId, toolName);
+          },
+          onGoal: (goal) => {
+            this.activityTracker.setGoal(sessionId, goal);
+          },
+          onSkillUse: (skillName) => {
+            this.activityTracker.addSkill(sessionId, skillName);
+          },
+          onToolComplete: () => {
+            this.taskController.checkGracefulStop(sessionId);
+          },
+        },
+        abortController,
+      );
+
+      stopTyping();
+      this.activityTracker.clear(sessionId);
+      this.taskController.remove(sessionId);
+
+      await this.sessionStore.update(sessionId, {
+        lastActiveAt: new Date().toISOString(),
+        messageCount: (this.sessionStore.get(sessionId)?.messageCount ?? 0) + 1,
+      });
+
+      const text = result.text.trim() || '> **Inject handled.** Waiting for your next instruction.';
+      const chunks = splitMessage(text);
+      for (const chunk of chunks) {
+        await channel.send(chunk);
+      }
+    } catch (err) {
+      stopTyping();
+      this.activityTracker.clear(sessionId);
+      this.taskController.remove(sessionId);
+      if (!abortController.signal.aborted) {
+        logger.error(`Inject failed for session ${sessionId}:`, err);
+        await channel.send(`> **Inject failed:** ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
     }
   }
 
