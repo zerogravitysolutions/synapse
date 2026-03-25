@@ -18,6 +18,11 @@ const DISCORD_SYSTEM_PROMPT = [
   '- ALWAYS create a todo list (using TodoWrite) before starting any work. Think thoroughly about the steps needed.',
   '- Update the todo list as you progress — mark items complete, add new ones, remove unnecessary ones.',
   '- The todo list should reflect your current plan at all times.',
+  '',
+  'Long-running commands:',
+  '- If a command or process might take more than 2 minutes (builds, tests, deployments, large data processing), do NOT run it as a single blocking command.',
+  '- Instead, run it in the background and monitor it with a 60-second loop that checks progress and reports status to the user.',
+  '- Example: start the process, then loop with `sleep 60` checking logs, output, or exit status, and print a brief progress update each iteration.',
 ].join('\n');
 
 export class ClaudeCli {
