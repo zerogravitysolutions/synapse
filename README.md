@@ -17,7 +17,7 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 | **Access** | Full host — all CLI tools, files, and environment | Isolated — only mounted dirs and container-installed tools |
 | **Tools available** | Everything installed on your machine (Java, Gradle, Python, Docker, etc.) | Node.js and Docker CLI only (extend via Dockerfile) |
 | **Filesystem** | Unrestricted — Claude sees your entire filesystem | Restricted — only `/workspace` (mounted) and `/tmp` |
-| **Background running** | pm2 process manager | Docker restart policy (`always`) |
+| **Background running** | pm2 process manager (auto-start on boot) | Docker restart policy (`always`) |
 | **Setup complexity** | Simple — `npm install && npm start` | More involved — volumes, permissions, entrypoint |
 | **Best for** | Development workflows needing full toolchain access | Running as a service with controlled access |
 
@@ -30,7 +30,7 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 | Command | Description |
 |---|---|
 | `/new-session topic:"..."` | Create a new Claude session and dedicated Discord channel |
-| `/list-sessions` | List all active sessions with message count and last activity |
+| `/list-sessions` | List active sessions (use `all:true` to include archived) |
 | `/connect-session session-id:"..."` | Resume an existing or archived session in a new channel |
 | `/end-session session-id:"..."` | Archive a session, rename channel with `archived-` prefix |
 | `/session-info` | Show session details for the current channel |
@@ -42,9 +42,9 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 |---|---|
 | `/ping` | Check what Claude is doing right now (instant, reads from memory) |
 | `/pingme interval:"10m"` | Get automatic progress updates at a set interval (use `stop` to cancel) |
-| `/stop` | Cancel the running task (kills the CLI process) |
-| `/aside message:"..."` | Send a parallel question without interrupting the running task (forks the session, runs alongside) |
-| `/interrupt message:"..."` | Stop the current task at the next tool boundary and redirect Claude to a new instruction |
+| `/stop` | Cancel the running task (waits for file edits to finish) |
+| `/aside message:"..."` | Send a parallel question without interrupting the running task (forks the session) |
+| `/interrupt message:"..."` | Stop the current task at the next tool boundary and redirect Claude |
 
 Every message in a session channel is forwarded to Claude — just type normally.
 
@@ -56,11 +56,15 @@ Every message in a session channel is forwarded to Claude — just type normally
 |---|---|
 | **Multi-session** | Run multiple concurrent sessions, each in its own Discord channel |
 | **Streaming activity** | Real-time tracking of Claude's progress via `--output-format stream-json` |
-| **Smart `/ping`** | Shows goal, completed steps, tools used, current action, and elapsed time as a Discord embed |
-| **Task cancellation** | `/stop` kills the running CLI process instantly, clears the queue |
-| **File attachments** | Send screenshots/files to Claude (auto-downloaded for analysis) and receive generated images/files back |
+| **Smart `/ping`** | Shows goal, todo checklist, tools used, current action, and elapsed time |
+| **Task cancellation** | `/stop` kills the process — waits for file edits to finish before killing |
+| **Parallel questions** | `/aside` forks the session for side questions without interrupting work |
+| **Task redirection** | `/interrupt` stops at the next tool boundary and sends a new instruction |
+| **File attachments** | Send screenshots/files to Claude and receive generated files back |
+| **Auto .env loading** | Uses `dotenv` — no need to source `.env` manually |
+| **Auto-start on boot** | pm2 with launchd (macOS) or systemd (Linux) integration |
 | **Typing indicator** | Discord typing animation while Claude works (refreshed every 9s) |
-| **Message splitting** | Long responses split on word boundaries, preserving code block fences |
+| **Message splitting** | Long responses split on word boundaries, preserving code blocks and inline code |
 | **Session persistence** | Atomic JSON file writes — survives crashes without corruption |
 | **Graceful shutdown** | Drains in-flight tasks, flushes session store, then disconnects |
 | **Discord formatting** | System prompt enforces Discord-compatible markdown (no tables, no `---`) |
@@ -85,10 +89,12 @@ Discord User (text + attachments)
     v
 Discord Gateway (discord.js v14)
     |
-    +-- Slash Commands (/ping, /stop, /reset, etc.)
+    +-- Slash Commands
     |       |
     |       +-- /ping, /pingme --> Activity Tracker (in-memory, instant)
-    |       +-- /stop --> Task Controller (kills running CLI process)
+    |       +-- /stop --> Task Controller (graceful kill)
+    |       +-- /aside --> Fork session (parallel, no interruption)
+    |       +-- /interrupt --> Graceful stop + redirect
     |       +-- /reset --> Queue (waits for in-flight task, then resets)
     |
     +-- Channel Messages --> Message Handler
@@ -103,7 +109,7 @@ Discord Gateway (discord.js v14)
                   claude -p --dangerously-skip-permissions
                     --resume <id> --output-format stream-json
                                |
-                  Streaming events: activity, tools, goal, skills
+                  Streaming events: activity, tools, goal, skills, todos
                                |
                                v
                   Response + detected file attachments
@@ -118,16 +124,16 @@ Discord Gateway (discord.js v14)
 
 While Claude is working on a long task, use `/ping` for an instant status check. It reads from an in-memory activity tracker — no CLI call, no queue wait.
 
-The response is a Discord embed showing:
+The response includes:
 - **Goal** — extracted from Claude's first text or sub-agent task description
-- **Done** — completed steps toward the goal
+- **Tasks** — live todo checklist from Claude's TodoWrite (completed, in progress, pending)
 - **Tools** — compact summary of tools used (Read, Edit, Bash, Grep, etc.)
 - **Skills** — any Claude Code skills invoked (e.g. `/mathstrict`)
 - **What's left** — the current objective being worked toward
 - **Now** — the specific action happening right now (e.g. `Editing services/auth.ts`)
 - **Duration** — time since the task started
 
-Use `/pingme interval:"5m"` to get these updates automatically on a timer.
+Use `/pingme interval:"5m"` to get these updates automatically on a timer. Auto-stops when the task completes.
 
 ---
 
@@ -148,7 +154,7 @@ Supports any file type up to 25 MB per attachment. You can include text alongsid
 When Claude's response mentions file paths (e.g. `/workspace/project/settings.gradle`), the bot checks if those files exist and attaches them to the Discord reply automatically.
 
 - Up to 10 files, 8 MB per file, 25 MB total
-- Files must exist on the container/host filesystem
+- Files must exist on the host/container filesystem
 - Attached to the last message chunk if the response is split
 
 ---
@@ -167,10 +173,12 @@ When Claude's response mentions file paths (e.g. `/workspace/project/settings.gr
 
 - Messages queued and forwarded to Claude sequentially (one at a time per session)
 - Typing indicator while Claude thinks
-- Long responses auto-split, preserving code blocks
+- Long responses auto-split, preserving code blocks and inline code
 - Multiple sessions run concurrently — only same-session messages are serialized
 - `/ping` checks status instantly without interrupting work
-- `/stop` kills the running task if needed
+- `/stop` kills the running task (waits for file edits to finish)
+- `/aside` sends parallel questions without interrupting
+- `/interrupt` redirects the task at the next tool boundary
 
 ### Archiving
 
@@ -206,13 +214,18 @@ See **[SETUP.md](SETUP.md)** for a detailed step-by-step walkthrough including D
 
 ```bash
 cp .env.example .env
-# Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID, CLAUDE_CODE_OAUTH_TOKEN
+# Fill in DISCORD_TOKEN, DISCORD_CLIENT_ID, and one of CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
 
 # Docker
 docker compose up --build -d
 
 # Native
 npm install && npm run build && npm start
+
+# Native with auto-start on boot
+npm install -g pm2
+npm run pm2:setup
+# Run the sudo command pm2 outputs — once, ever
 ```
 
 Global slash commands take **up to 1 hour** to appear after first registration.
@@ -233,6 +246,8 @@ Global slash commands take **up to 1 hour** to appear after first registration.
 | `CLAUDE_CLI_TIMEOUT` | No | `86400000` (24h) | CLI timeout in milliseconds |
 | `CLAUDE_WORK_DIR` | No | `/workspace` | Claude CLI working directory. **Native**: your workspace path |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error` |
+
+The `.env` file is loaded automatically via `dotenv` — no need to `source .env` before starting.
 
 ---
 
@@ -284,10 +299,11 @@ This setup prioritizes functionality over security. Understand the risks before 
 
 ```bash
 npm start                    # foreground
-pm2 start dist/index.js     # background
-pm2 logs mindbridge          # logs
-pm2 restart mindbridge       # restart
-pm2 stop mindbridge          # stop
+npm run pm2:start            # background via pm2
+npm run pm2:logs             # tail logs
+npm run pm2:restart          # restart
+npm run pm2:stop             # stop
+npm run pm2:setup            # start + save + auto-boot setup
 ```
 
 ### Docker Mode
@@ -331,52 +347,55 @@ When the OAuth token expires:
 ```
 synapse/
 +-- src/
-|   +-- index.ts                  # Entry point, bootstrap, graceful shutdown
+|   +-- index.ts                  # Entry point, dotenv loading, bootstrap, graceful shutdown
 |   +-- bot.ts                    # Discord client setup, event wiring
 |   +-- config.ts                 # Environment variable loading
 |   +-- types.ts                  # Shared TypeScript interfaces
 |   +-- commands/
 |   |   +-- index.ts              # Global slash command registration
 |   |   +-- new-session.ts        # /new-session
-|   |   +-- list-sessions.ts      # /list-sessions
+|   |   +-- list-sessions.ts      # /list-sessions (with all:true option)
 |   |   +-- connect-session.ts    # /connect-session
 |   |   +-- end-session.ts        # /end-session
 |   |   +-- session-info.ts       # /session-info
 |   |   +-- ping.ts               # /ping
 |   |   +-- pingme.ts             # /pingme
-|   |   +-- stop.ts               # /stop
+|   |   +-- stop.ts               # /stop (graceful for file edits)
 |   |   +-- reset.ts              # /reset
+|   |   +-- nudge.ts              # /aside (fork session for parallel questions)
+|   |   +-- inject.ts             # /interrupt (redirect at tool boundary)
 |   +-- services/
-|   |   +-- claude-cli.ts         # Claude CLI wrapper (spawn, streaming, JSON parse)
+|   |   +-- claude-cli.ts         # Claude CLI wrapper (spawn, streaming, fork, system prompt)
 |   |   +-- session-store.ts      # Session CRUD, atomic JSON persistence
 |   |   +-- message-queue.ts      # Per-session promise-chain queue
 |   |   +-- channel-manager.ts    # Discord category + channel management
-|   |   +-- activity-tracker.ts   # Real-time task activity tracking
-|   |   +-- task-controller.ts    # Shared abort controller for /stop
+|   |   +-- activity-tracker.ts   # Real-time task activity tracking (goal, todos, tools, skills)
+|   |   +-- task-controller.ts    # Shared abort controller for /stop and /interrupt
 |   |   +-- message-handler.ts    # Message forwarding, typing, file attachments
 |   +-- utils/
 |       +-- logger.ts             # Timestamped structured logging
 |       +-- sanitize.ts           # Discord channel name sanitization
-|       +-- split-message.ts      # Code-block-aware message splitting
+|       +-- split-message.ts      # Code-block-aware message splitting (protects inline code)
 |       +-- format-activity.ts    # Shared activity formatting for /ping and /pingme
 +-- entrypoint.sh                 # (Docker) Volume permissions, user drop
 +-- Dockerfile                    # (Docker) Multi-stage build
 +-- docker-compose.yml            # (Docker) Container orchestration
-+-- .env.example                  # Environment template
-+-- package.json
++-- .env.example                  # Environment template (both auth options)
++-- package.json                  # Scripts: start, build, pm2:start/stop/restart/logs/setup
 +-- tsconfig.json
-+-- SETUP.md                      # Step-by-step setup walkthrough
++-- SETUP.md                      # Agent-executable setup walkthrough
 ```
 
 ---
 
 ## Tech Stack
 
-- **Runtime**: Node.js 20, TypeScript (ES2022, Node16 modules)
-- **Discord**: discord.js v14 — only runtime dependency
+- **Runtime**: Node.js 20+, TypeScript (ES2022, Node16 modules)
+- **Discord**: discord.js v14
+- **Environment**: dotenv for automatic `.env` loading
 - **Claude**: `@anthropic-ai/claude-code` CLI via `child_process.spawn` with `stream-json` output
 - **Container** (Docker): Multi-stage build, tini for signals, gosu for privilege dropping
-- **Process manager** (Native): pm2 for 24/7 operation
+- **Process manager** (Native): pm2 for 24/7 operation with auto-start on boot
 - **Persistence**: Atomic JSON file writes (Docker volumes or local filesystem)
 
 ---
@@ -386,12 +405,14 @@ synapse/
 - **`spawn`, not `execFile`**: `stdio: ['ignore', 'pipe', 'pipe']` closes stdin — prevents CLI blocking in headless mode
 - **Streaming over batch**: `--output-format stream-json --verbose` enables real-time activity tracking and tool-by-tool progress
 - **In-memory activity tracker**: `/ping` reads from a lightweight Map — no CLI call, no queue wait, instant response
-- **Task controller**: Shared `AbortController` manager lets `/stop` kill running CLI processes from a separate slash command
+- **Task controller**: Shared `AbortController` manager lets `/stop` and `/interrupt` control running CLI processes
+- **Graceful stop**: `/stop` waits for file edits to finish before killing — prevents corrupted files
+- **Session forking**: `/aside` uses `--resume --fork-session` for parallel questions with full context
 - **CLI-first, channel-second**: `/new-session` calls Claude before creating the channel — if the CLI fails, no orphan channel
 - **Per-session queuing**: Messages to the same session serialized via promise chains; different sessions concurrent
 - **Atomic persistence**: Write to `.tmp` then `fs.rename` — no partial writes on crash
-- **Entrypoint as root** (Docker): Named volumes mount as root; entrypoint fixes ownership then drops to `mindbridge` via gosu
-- **`--dangerously-skip-permissions`**: Required — headless mode has no UI for tool approval
+- **dotenv**: Auto-loads `.env` at startup — no manual `source .env` needed for any start method
+- **System prompt**: Enforces Discord formatting, todo planning, and long-running command monitoring
 - **Dual deployment**: Same codebase, same env var interface — only startup method differs
 
 ---
@@ -400,9 +421,9 @@ synapse/
 
 - **Built for developers** — not a general-purpose assistant, but a focused bridge between Discord and Claude Code CLI for software engineering work
 - **Full CLI tool access** — Read, Write, Edit, Bash, Grep, Glob — Claude works the same way it does in your terminal
-- **No API key** — runs on a Claude Max subscription via the CLI, no token billing or usage tracking
+- **No API key required** — runs on a Claude Max subscription via the CLI (API key also supported)
 - **Real-time visibility** — `/ping` and `/pingme` show what Claude is doing, what's done, and what's left while it works
-- **Minimal footprint** — single dependency (`discord.js`), ~2700 lines of TypeScript, 3 env vars to configure
+- **Minimal footprint** — two dependencies (`discord.js`, `dotenv`), ~2700 lines of TypeScript, 3 env vars to configure
 - **No database** — atomic JSON file persistence, nothing to install or maintain
 
 ---
@@ -444,7 +465,7 @@ MindBridge is open source and contributions are welcome! Whether it's a bug fix,
 
 ### Guidelines
 
-- Keep dependencies minimal — the project has a single runtime dependency (`discord.js`) and we'd like to keep it lean
+- Keep dependencies minimal — we'd like to keep the project lean
 - Follow the existing patterns: atomic writes, spawn with arg arrays (no shell), per-session queuing
 - Add clear log messages for new features
 - Update the README if your change adds configuration or commands

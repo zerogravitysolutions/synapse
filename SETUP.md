@@ -23,18 +23,18 @@ Also ask:
 ```
 Which deployment mode do you prefer?
 
-A) Docker (recommended)
+A) Docker (recommended for isolation)
    + Isolated container — Claude only sees what you mount
    + Runs as a background service with auto-restart
    + No Node.js needed on host
    - Claude can only use Node.js and Docker CLI (no host tools like Java, Gradle, Python)
    - More complex setup (volumes, permissions)
 
-B) Native
+B) Native (recommended for development)
    + Claude has access to ALL your tools (Java, Gradle, Python, Docker, etc.)
    + Simpler setup — just npm install and run
+   + Auto-start on boot via pm2
    - Claude can access your entire filesystem
-   - Needs a terminal session or pm2 for 24/7 running
 ```
 
 5. **Workspace path** — (Native mode only) ask: "Which directory should Claude work in? Default: `~/Documents/workspace`"
@@ -111,6 +111,8 @@ SESSION_FILE_PATH=./data/sessions.json
 CLAUDE_WORK_DIR=<workspace path from user>
 ```
 
+Note: values with spaces must be quoted (e.g. `SESSION_CATEGORY_NAME="CLAUDE SESSIONS"`).
+
 All other values have sensible defaults. See [README.md](README.md#configuration) for the full configuration reference.
 
 ---
@@ -135,26 +137,41 @@ docker compose logs --tail 10
 npm install
 npm run build
 mkdir -p ./data
+```
+
+For foreground (testing):
+```bash
 npm start
 ```
 
-For 24/7 background running:
-
+For background with auto-start on boot (recommended):
 ```bash
 npm install -g pm2
-pm2 start dist/index.js --name mindbridge
-pm2 save
-pm2 startup
+npm run pm2:setup
 ```
+
+`pm2:setup` starts the bot, saves the process list, and outputs a `sudo` command. Ask the user to run that command once — it configures auto-start on boot via launchd (macOS) or systemd (Linux).
 
 ---
 
 ## Step 5: Verify (agent can do this)
 
-Check the logs for these lines:
+Check the logs:
+
+**Native (pm2):**
+```bash
+pm2 logs mindbridge --lines 10 --nostream
+```
+
+**Docker:**
+```bash
+docker compose logs --tail 10
+```
+
+Look for these lines:
 
 ```
-[INFO] Registering 9 global slash commands...
+[INFO] Registering 11 global slash commands...
 [INFO] Slash commands registered successfully
 [INFO] Bot logged in as MindBridge#XXXX
 [INFO] MindBridge is running
@@ -179,6 +196,7 @@ If the bot fails to start, check these in order:
 3. **`MODULE_NOT_FOUND` (Native)** → Run `npm run build` first — TypeScript must be compiled.
 4. **`Claude CLI error` in Discord** → OAuth token is expired or invalid. Ask the user to run `claude setup-token` again.
 5. **Slash commands don't appear** → Wait up to 1 hour. This is normal for first registration.
+6. **Bot crashes on restart (Native)** → Check `pm2 logs mindbridge` for the error.
 
 ---
 
@@ -187,10 +205,12 @@ If the bot fails to start, check these in order:
 | Step | Who | Action |
 |------|-----|--------|
 | Create Discord bot | User | Manual browser setup, provides token + client ID |
-| Generate Claude token | User | Runs `claude setup-token`, provides the token |
+| Generate Claude token | User | Runs `claude setup-token` or provides API key |
 | Choose deployment mode | User | Docker or Native |
 | Choose workspace path | User | Native mode only |
 | Clone repo | Agent | `git clone` |
 | Create .env | Agent | Write file with user-provided values |
-| Build and deploy | Agent | `docker compose up --build -d` or `npm install && npm run build && npm start` |
+| Install dependencies | Agent | `npm install` (Native) or `docker compose build` (Docker) |
+| Build and deploy | Agent | `npm run pm2:setup` (Native) or `docker compose up --build -d` (Docker) |
+| Run sudo startup command | User | Native only — `pm2 startup` outputs a one-time sudo command for auto-boot |
 | Verify | Agent | Check logs for success messages |

@@ -6,10 +6,14 @@ export function listSessionsCommand(sessionStore: SessionStore): Command {
   return {
     data: new SlashCommandBuilder()
       .setName('list-sessions')
-      .setDescription('List all active Claude sessions'),
+      .setDescription('List Claude sessions')
+      .addBooleanOption(opt =>
+        opt.setName('all').setDescription('Include archived sessions').setRequired(false)
+      ),
 
     async execute(interaction) {
-      const sessions = sessionStore.getActiveSessions();
+      const showAll = interaction.options.getBoolean('all') ?? false;
+      const sessions = showAll ? sessionStore.getAllSessions() : sessionStore.getActiveSessions();
 
       if (sessions.length === 0) {
         await interaction.reply({ content: 'No active sessions.', ephemeral: true });
@@ -17,7 +21,7 @@ export function listSessionsCommand(sessionStore: SessionStore): Command {
       }
 
       const embed = new EmbedBuilder()
-        .setTitle('Active Sessions')
+        .setTitle(showAll ? 'All Sessions' : 'Active Sessions')
         .setColor(0x7C3AED)
         .setTimestamp();
 

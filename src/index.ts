@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { loadConfig } from './config.js';
 import { createBot } from './bot.js';
 import { ClaudeCli } from './services/claude-cli.js';

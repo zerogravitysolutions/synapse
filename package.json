@@ -7,10 +7,16 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "pm2:start": "pm2 start dist/index.js --name mindbridge",
+    "pm2:stop": "pm2 stop mindbridge",
+    "pm2:restart": "pm2 restart mindbridge",
+    "pm2:logs": "pm2 logs mindbridge",
+    "pm2:setup": "pm2 start dist/index.js --name mindbridge && pm2 save && pm2 startup"
   },
   "dependencies": {
-    "discord.js": "^14.16.3"
+    "discord.js": "^14.16.3",
+    "dotenv": "^17.3.1"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

@@ -90,6 +90,11 @@ export class SessionStore {
       .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
   }
 
+  getAllSessions(): SessionData[] {
+    return [...this.sessions.values()]
+      .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
+  }
+
   async flush(): Promise<void> {
     await this.save();
   }
