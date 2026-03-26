@@ -68,7 +68,7 @@ export function endSessionCommand(
               .setTimestamp();
 
             await channel.send({ embeds: [embed] });
-            await channelManager.renameChannelArchived(channel);
+            await channelManager.moveChannelToArchive(guild, channel);
           }
         } catch {
           // Channel may already be deleted

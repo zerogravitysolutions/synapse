@@ -9,24 +9,22 @@ import { logger } from '../utils/logger.js';
 
 export class ChannelManager {
   private categoryName: string;
+  private archiveCategoryName: string;
 
-  constructor(categoryName: string) {
+  constructor(categoryName: string, archiveCategoryName: string) {
     this.categoryName = categoryName;
+    this.archiveCategoryName = archiveCategoryName;
   }
 
-  private async findOrCreateCategory(guild: Guild): Promise<CategoryChannel> {
+  private async findOrCreateCategory(guild: Guild, name: string): Promise<CategoryChannel> {
     const existing = guild.channels.cache.find(
-      ch => ch.type === ChannelType.GuildCategory && ch.name === this.categoryName
+      ch => ch.type === ChannelType.GuildCategory && ch.name === name
     ) as CategoryChannel | undefined;
 
     if (existing) return existing;
 
-    logger.info(`Creating category "${this.categoryName}" in guild ${guild.id}`);
-    const category = await guild.channels.create({
-      name: this.categoryName,
-      type: ChannelType.GuildCategory,
-    });
-    return category;
+    logger.info(`Creating category "${name}" in guild ${guild.id}`);
+    return guild.channels.create({ name, type: ChannelType.GuildCategory });
   }
 
   async createSessionChannel(
@@ -34,7 +32,7 @@ export class ChannelManager {
     topic: string,
     sessionId: string,
   ): Promise<TextChannel> {
-    const category = await this.findOrCreateCategory(guild);
+    const category = await this.findOrCreateCategory(guild, this.categoryName);
     const channelName = sanitizeChannelName(topic, sessionId.slice(0, 6));
 
     logger.info(`Creating channel "${channelName}" under "${this.categoryName}"`);
@@ -48,9 +46,9 @@ export class ChannelManager {
     return channel;
   }
 
-  async renameChannelArchived(channel: TextChannel): Promise<void> {
-    const newName = `archived-${channel.name}`.slice(0, 100);
-    await channel.setName(newName);
-    logger.info(`Renamed channel to "${newName}"`);
+  async moveChannelToArchive(guild: Guild, channel: TextChannel): Promise<void> {
+    const archiveCategory = await this.findOrCreateCategory(guild, this.archiveCategoryName);
+    await channel.setParent(archiveCategory.id, { lockPermissions: false });
+    logger.info(`Moved channel "${channel.name}" to "${this.archiveCategoryName}"`);
   }
 }

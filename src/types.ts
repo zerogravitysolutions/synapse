@@ -77,6 +77,7 @@ export interface Config {
   discordToken: string;
   discordAppId: string;
   categoryName: string;
+  archiveCategoryName: string;
   sessionFilePath: string;
   claudeCliPath: string;
   claudeCliTimeout: number;

@@ -33,7 +33,7 @@ async function main() {
   const messageQueue = new MessageQueue();
   const activityTracker = new ActivityTracker();
   const taskController = new TaskController();
-  const channelManager = new ChannelManager(config.categoryName);
+  const channelManager = new ChannelManager(config.categoryName, config.archiveCategoryName);
 
   // Load persisted channel mappings
   await sessionStore.load();
