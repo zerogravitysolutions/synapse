@@ -13,31 +13,39 @@ export function endSessionCommand(
   return {
     data: new SlashCommandBuilder()
       .setName('end-session')
-      .setDescription('Archive a Claude session')
+      .setDescription('Archive a Claude session (defaults to the session in this channel)')
       .addStringOption(opt =>
-        opt.setName('session-id').setDescription('Full or partial session ID').setRequired(true)
+        opt.setName('session-id').setDescription('Full or partial session ID').setRequired(false)
       ),
 
     async execute(interaction) {
-      const prefix = interaction.options.getString('session-id', true);
+      const prefix = interaction.options.getString('session-id');
       const guild = interaction.guild!;
 
       await interaction.deferReply();
 
       try {
-        const matches = sessionStore.findByPrefix(prefix);
+        let session;
 
-        if (matches.length === 0) {
-          await interaction.editReply(`No session found matching \`${prefix}\``);
-          return;
+        if (prefix) {
+          const matches = sessionStore.findByPrefix(prefix);
+          if (matches.length === 0) {
+            await interaction.editReply(`No session found matching \`${prefix}\``);
+            return;
+          }
+          if (matches.length > 1) {
+            const ids = matches.map(s => `\`${s.sessionId}\` (${s.topic})`).join('\n');
+            await interaction.editReply(`Multiple sessions match. Be more specific:\n${ids}`);
+            return;
+          }
+          session = matches[0];
+        } else {
+          session = sessionStore.findByChannelId(interaction.channelId);
+          if (!session) {
+            await interaction.editReply('No session linked to this channel. Use `session-id` to specify one.');
+            return;
+          }
         }
-        if (matches.length > 1) {
-          const ids = matches.map(s => `\`${s.sessionId}\` (${s.topic})`).join('\n');
-          await interaction.editReply(`Multiple sessions match. Be more specific:\n${ids}`);
-          return;
-        }
-
-        const session = matches[0];
 
         if (session.status === 'archived') {
           await interaction.editReply(
