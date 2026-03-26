@@ -44,18 +44,18 @@ export function asideCommand(
           // Resume existing fork
           logger.info(`Aside (resume fork ${existingFork}) for session ${session.id}: "${asideMessage}"`);
           try {
-            result = await claudeCli.resumeSession(existingFork, asideMessage);
+            result = await claudeCli.resumeSession(existingFork, asideMessage, session.workDir);
           } catch {
             // Fork session lost — create a new one
             logger.info(`Fork ${existingFork} not found, creating new fork`);
             forkSessions.delete(session.id);
-            result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`);
+            result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`, session.workDir);
             forkSessions.set(session.id, result.sessionId);
           }
         } else {
           // First aside — fork the session
           logger.info(`Aside (new fork) for session ${session.id}: "${asideMessage}"`);
-          result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`);
+          result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`, session.workDir);
           forkSessions.set(session.id, result.sessionId);
         }
 

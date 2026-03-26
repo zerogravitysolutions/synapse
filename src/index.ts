@@ -38,7 +38,7 @@ async function main() {
 
   // Build commands
   const commands = [
-    newSessionCommand(claudeCli, sessionStore, channelManager),
+    newSessionCommand(claudeCli, sessionStore, channelManager, config),
     listSessionsCommand(sessionStore),
     connectSessionCommand(claudeCli, sessionStore, channelManager),
     endSessionCommand(sessionStore, channelManager, messageQueue),

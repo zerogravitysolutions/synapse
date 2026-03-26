@@ -3,6 +3,7 @@ import type { Command } from '../types.js';
 import type { ClaudeCli } from '../services/claude-cli.js';
 import type { SessionStore } from '../services/session-store.js';
 import type { ChannelManager } from '../services/channel-manager.js';
+import type { Config } from '../types.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
@@ -10,6 +11,7 @@ export function newSessionCommand(
   claudeCli: ClaudeCli,
   sessionStore: SessionStore,
   channelManager: ChannelManager,
+  config: Config,
 ): Command {
   return {
     data: new SlashCommandBuilder()
@@ -47,6 +49,7 @@ export function newSessionCommand(
           createdAt: now,
           lastActiveAt: now,
           messageCount: 1,
+          workDir: config.claudeWorkDir,
         });
 
         // 4. Post Claude's response in the new channel

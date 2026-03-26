@@ -75,7 +75,8 @@ export function connectSessionCommand(
         // Ask Claude to summarize the previous conversation
         const result = await claudeCli.resumeSession(
           session.id,
-          'Please provide a brief summary of our conversation so far.'
+          'Please provide a brief summary of our conversation so far.',
+          session.workDir,
         );
 
         const embed = new EmbedBuilder()

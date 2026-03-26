@@ -52,11 +52,11 @@ export class MessageHandler {
 
     // Forward to Claude via queue
     this.messageQueue.enqueue(session.id, async () => {
-      await this.forwardToClaude(message, session.id);
+      await this.forwardToClaude(message, session.id, session.workDir);
     });
   }
 
-  private async forwardToClaude(message: Message, sessionId: string): Promise<void> {
+  private async forwardToClaude(message: Message, sessionId: string, workDir?: string): Promise<void> {
     const channel = message.channel as TextChannel;
     const stopTyping = this.startTyping(channel);
 
@@ -107,6 +107,7 @@ export class MessageHandler {
           },
         },
         abortController,
+        workDir,
       );
 
       // Snapshot activity before clearing — used for summary if result is empty

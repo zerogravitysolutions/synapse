@@ -41,7 +41,8 @@ export function resetCommand(
 
           // Start a fresh session
           const result = await claudeCli.startSession(
-            `You are starting a fresh session. The topic is: ${session.topic}. The previous session was reset by the user. Introduce yourself briefly.`
+            `You are starting a fresh session. The topic is: ${session.topic}. The previous session was reset by the user. Introduce yourself briefly.`,
+            session.workDir,
           );
 
           // Create new session pointing to the same channel
@@ -55,6 +56,7 @@ export function resetCommand(
             createdAt: now,
             lastActiveAt: now,
             messageCount: 1,
+            workDir: session.workDir,
           });
 
           // Update channel topic

@@ -36,17 +36,17 @@ export class ClaudeCli {
     this.workDir = config.claudeWorkDir;
   }
 
-  async startSession(message: string): Promise<CliResult> {
+  async startSession(message: string, workDir?: string): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
-    ]);
+    ], workDir);
   }
 
-  async resumeSession(sessionId: string, message: string): Promise<CliResult> {
+  async resumeSession(sessionId: string, message: string, workDir?: string): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
@@ -54,11 +54,11 @@ export class ClaudeCli {
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
-    ]);
+    ], workDir);
   }
 
   /** Fork a session and send a message — safe for parallel use, no race condition with the parent. */
-  async forkSession(sessionId: string, message: string): Promise<CliResult> {
+  async forkSession(sessionId: string, message: string, workDir?: string): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
@@ -67,7 +67,7 @@ export class ClaudeCli {
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
-    ]);
+    ], workDir);
   }
 
   async streamResumeSession(
@@ -82,6 +82,7 @@ export class ClaudeCli {
       onToolComplete?: () => void;
     },
     externalAbort?: AbortController,
+    workDir?: string,
   ): Promise<CliResult> {
     const args = [
       '-p',
@@ -102,7 +103,7 @@ export class ClaudeCli {
     try {
       return await new Promise<CliResult>((resolve, reject) => {
         const child = spawn(this.cliPath, args, {
-          cwd: this.workDir,
+          cwd: workDir ?? this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, NO_COLOR: '1' },
           signal: controller.signal,
@@ -379,7 +380,7 @@ export class ClaudeCli {
     return purpose;
   }
 
-  private async execute(args: string[]): Promise<CliResult> {
+  private async execute(args: string[], workDir?: string): Promise<CliResult> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -388,7 +389,7 @@ export class ClaudeCli {
     try {
       const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
         const child = spawn(this.cliPath, args, {
-          cwd: this.workDir,
+          cwd: workDir ?? this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, NO_COLOR: '1' },
           signal: controller.signal,

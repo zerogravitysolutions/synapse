@@ -17,6 +17,7 @@ export interface SessionData {
   lastActiveAt: string;
   messageCount: number;
   archivedAt?: string;
+  workDir?: string;
 }
 
 export interface SessionFile {

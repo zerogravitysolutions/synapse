@@ -16,6 +16,6 @@ export function loadConfig(): Config {
     sessionFilePath: process.env['SESSION_FILE_PATH'] ?? '/data/sessions.json',
     claudeCliPath: process.env['CLAUDE_CLI_PATH'] ?? 'claude',
     claudeCliTimeout: parseInt(process.env['CLAUDE_CLI_TIMEOUT'] ?? '86400000', 10),
-    claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? '/workspace',
+    claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? process.cwd(),
   };
 }
