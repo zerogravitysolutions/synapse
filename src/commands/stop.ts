@@ -26,27 +26,27 @@ export function stopCommand(
         return;
       }
 
-      if (!taskController.has(session.id)) {
+      if (!taskController.has(session.sessionId)) {
         await interaction.reply('No task running.');
         return;
       }
 
-      const activity = activityTracker.get(session.id);
+      const activity = activityTracker.get(session.sessionId);
       const currentTool = activity?.toolName;
 
       if (currentTool && FILE_TOOLS.has(currentTool)) {
         // Graceful — wait for file edit/write to finish, then kill
-        taskController.requestGracefulStop(session.id);
-        messageQueue.remove(session.id);
+        taskController.requestGracefulStop(session.sessionId);
+        messageQueue.remove(session.sessionId);
         await interaction.reply(`Stopping after current file operation finishes (\`${activity?.description ?? currentTool}\`)...`);
-        logger.info(`Graceful stop requested for session ${session.id} (tool: ${currentTool})`);
+        logger.info(`Graceful stop requested for session ${session.sessionId} (tool: ${currentTool})`);
       } else {
         // Immediate — safe to kill now
-        taskController.abort(session.id);
-        messageQueue.remove(session.id);
-        activityTracker.clear(session.id);
+        taskController.abort(session.sessionId);
+        messageQueue.remove(session.sessionId);
+        activityTracker.clear(session.sessionId);
         await interaction.reply('Task cancelled.');
-        logger.info(`User stopped task for session ${session.id}`);
+        logger.info(`User stopped task for session ${session.sessionId}`);
       }
     },
   };

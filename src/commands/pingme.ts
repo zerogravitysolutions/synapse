@@ -59,7 +59,7 @@ export function pingmeCommand(
       const channel = interaction.channel as TextChannel;
 
       // Capture the taskId of the current task so we stop when it changes
-      const currentActivity = activityTracker.get(session.id);
+      const currentActivity = activityTracker.get(session.sessionId);
       const startTaskId = currentActivity?.taskId ?? 0;
 
       const timer = setInterval(async () => {
@@ -70,7 +70,7 @@ export function pingmeCommand(
           return;
         }
 
-        const activity = activityTracker.get(currentSession.id);
+        const activity = activityTracker.get(currentSession.sessionId);
 
         // Stop if: no activity, or the task changed (old task finished, new one started)
         if (!activity || (startTaskId && activity.taskId !== startTaskId)) {

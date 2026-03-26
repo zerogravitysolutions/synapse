@@ -5,9 +5,25 @@ import type {
   SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
 
-// --- Session ---
+// --- Session (channel mapping — Discord-specific state only) ---
 
-export interface SessionData {
+export interface ChannelMapping {
+  sessionId: string;
+  topic: string;
+  status: 'active' | 'archived';
+  channelId: string;
+  guildId: string;
+  workDir?: string;
+  archivedAt?: string;
+}
+
+export interface ChannelMappingFile {
+  version: 2;
+  mappings: Record<string, ChannelMapping>;
+}
+
+// Legacy format for migration
+export interface LegacySessionData {
   id: string;
   topic: string;
   status: 'active' | 'archived';
@@ -20,9 +36,22 @@ export interface SessionData {
   workDir?: string;
 }
 
-export interface SessionFile {
+interface LegacySessionFile {
   version: 1;
-  sessions: Record<string, SessionData>;
+  sessions: Record<string, LegacySessionData>;
+}
+
+export type SessionFile = ChannelMappingFile | LegacySessionFile;
+
+// --- CLI Session Metadata (read from JSONL files) ---
+
+export interface CliSessionMeta {
+  sessionId: string;
+  aiTitle: string | null;
+  createdAt: string;
+  lastActiveAt: string;
+  messageCount: number;
+  workDir: string;
 }
 
 // --- Claude CLI ---
@@ -52,4 +81,5 @@ export interface Config {
   claudeCliPath: string;
   claudeCliTimeout: number;
   claudeWorkDir: string;
+  claudeHome: string;
 }

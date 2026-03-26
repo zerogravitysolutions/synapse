@@ -31,7 +31,7 @@ export function asideCommand(
       }
 
       const asideMessage = interaction.options.getString('message', true);
-      const existingFork = forkSessions.get(session.id);
+      const existingFork = forkSessions.get(session.sessionId);
 
       await interaction.deferReply();
 
@@ -42,21 +42,21 @@ export function asideCommand(
 
         if (existingFork) {
           // Resume existing fork
-          logger.info(`Aside (resume fork ${existingFork}) for session ${session.id}: "${asideMessage}"`);
+          logger.info(`Aside (resume fork ${existingFork}) for session ${session.sessionId}: "${asideMessage}"`);
           try {
             result = await claudeCli.resumeSession(existingFork, asideMessage, session.workDir);
           } catch {
             // Fork session lost — create a new one
             logger.info(`Fork ${existingFork} not found, creating new fork`);
-            forkSessions.delete(session.id);
-            result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`, session.workDir);
-            forkSessions.set(session.id, result.sessionId);
+            forkSessions.delete(session.sessionId);
+            result = await claudeCli.forkSession(session.sessionId, `[Aside from user]: ${asideMessage}`, session.workDir);
+            forkSessions.set(session.sessionId, result.sessionId);
           }
         } else {
           // First aside — fork the session
-          logger.info(`Aside (new fork) for session ${session.id}: "${asideMessage}"`);
-          result = await claudeCli.forkSession(session.id, `[Aside from user]: ${asideMessage}`, session.workDir);
-          forkSessions.set(session.id, result.sessionId);
+          logger.info(`Aside (new fork) for session ${session.sessionId}: "${asideMessage}"`);
+          result = await claudeCli.forkSession(session.sessionId, `[Aside from user]: ${asideMessage}`, session.workDir);
+          forkSessions.set(session.sessionId, result.sessionId);
         }
 
         if (!result.text.trim()) {
@@ -71,7 +71,7 @@ export function asideCommand(
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        logger.error(`Aside failed for session ${session.id}:`, err);
+        logger.error(`Aside failed for session ${session.sessionId}:`, err);
         await interaction.editReply(`> **Aside failed:** ${errorMessage}`);
       }
     },

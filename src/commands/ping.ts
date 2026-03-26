@@ -21,7 +21,7 @@ export function pingCommand(
         return;
       }
 
-      const activity = activityTracker.get(session.id);
+      const activity = activityTracker.get(session.sessionId);
       if (!activity) {
         await interaction.reply('No active task. Claude is idle.');
         return;

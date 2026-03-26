@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Config } from './types.js';
 
 function requireEnv(name: string): string {
@@ -17,5 +19,6 @@ export function loadConfig(): Config {
     claudeCliPath: process.env['CLAUDE_CLI_PATH'] ?? 'claude',
     claudeCliTimeout: parseInt(process.env['CLAUDE_CLI_TIMEOUT'] ?? '86400000', 10),
     claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? process.cwd(),
+    claudeHome: process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
   };
 }

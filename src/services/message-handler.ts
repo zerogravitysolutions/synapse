@@ -8,6 +8,7 @@ import type { SessionStore } from './session-store.js';
 import type { MessageQueue } from './message-queue.js';
 import type { ActivityTracker, SessionActivity } from './activity-tracker.js';
 import type { TaskController } from './task-controller.js';
+import type { CliSessionReader } from './cli-session-reader.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
@@ -17,6 +18,7 @@ export class MessageHandler {
   private messageQueue: MessageQueue;
   private activityTracker: ActivityTracker;
   private taskController: TaskController;
+  private cliSessionReader: CliSessionReader;
 
   constructor(
     claudeCli: ClaudeCli,
@@ -24,12 +26,14 @@ export class MessageHandler {
     messageQueue: MessageQueue,
     activityTracker: ActivityTracker,
     taskController: TaskController,
+    cliSessionReader: CliSessionReader,
   ) {
     this.claudeCli = claudeCli;
     this.sessionStore = sessionStore;
     this.messageQueue = messageQueue;
     this.activityTracker = activityTracker;
     this.taskController = taskController;
+    this.cliSessionReader = cliSessionReader;
   }
 
   register(client: Client): void {
@@ -50,9 +54,18 @@ export class MessageHandler {
     const content = message.content.trim();
     if (!content && !message.attachments.size) return;
 
+    // Resolve the correct workDir — auto-fixes stale values from old mappings
+    let workDir = session.workDir;
+    const resolvedWorkDir = await this.cliSessionReader.resolveWorkDir(session.sessionId, workDir);
+    if (resolvedWorkDir && resolvedWorkDir !== workDir) {
+      logger.info(`Auto-correcting workDir for session ${session.sessionId}: ${workDir} -> ${resolvedWorkDir}`);
+      workDir = resolvedWorkDir;
+      await this.sessionStore.update(session.sessionId, { workDir: resolvedWorkDir });
+    }
+
     // Forward to Claude via queue
-    this.messageQueue.enqueue(session.id, async () => {
-      await this.forwardToClaude(message, session.id, session.workDir);
+    this.messageQueue.enqueue(session.sessionId, async () => {
+      await this.forwardToClaude(message, session.sessionId, workDir);
     });
   }
 
@@ -110,18 +123,10 @@ export class MessageHandler {
         workDir,
       );
 
-      // Snapshot activity before clearing — used for summary if result is empty
       const activity = this.activityTracker.get(sessionId);
-      const activitySnapshot = activity ? { ...activity, toolCounts: { ...activity.toolCounts }, completedSteps: [...activity.completedSteps], usedSkills: [...activity.usedSkills], actionLog: [...activity.actionLog] } : null;
-
       stopTyping();
       this.activityTracker.clear(sessionId);
       this.taskController.remove(sessionId);
-
-      await this.sessionStore.update(sessionId, {
-        lastActiveAt: new Date().toISOString(),
-        messageCount: (this.sessionStore.get(sessionId)?.messageCount ?? 0) + 1,
-      });
 
       const filesToSend = await this.collectAttachableFiles(result.text);
 
@@ -131,6 +136,8 @@ export class MessageHandler {
           logger.warn(`Claude returned an empty error for session ${sessionId}`);
           await channel.send({ embeds: [new EmbedBuilder().setDescription('Claude returned an error with no details.').setColor(0xEF4444)] });
         } else {
+          // Snapshot only when needed (activity may be cleared by now, use captured ref)
+          const activitySnapshot = activity ? { ...activity, toolCounts: { ...activity.toolCounts }, completedSteps: [...activity.completedSteps], usedSkills: [...activity.usedSkills], actionLog: [...activity.actionLog] } : null;
           const summary = this.buildActivitySummary(activitySnapshot, result);
           const summaryChunks = splitMessage(summary);
           for (let i = 0; i < summaryChunks.length; i++) {
@@ -226,11 +233,6 @@ export class MessageHandler {
       stopTyping();
       this.activityTracker.clear(sessionId);
       this.taskController.remove(sessionId);
-
-      await this.sessionStore.update(sessionId, {
-        lastActiveAt: new Date().toISOString(),
-        messageCount: (this.sessionStore.get(sessionId)?.messageCount ?? 0) + 1,
-      });
 
       const text = result.text.trim() || '> **Inject handled.** Waiting for your next instruction.';
       const chunks = splitMessage(text);

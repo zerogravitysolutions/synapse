@@ -32,7 +32,7 @@ export function endSessionCommand(
           return;
         }
         if (matches.length > 1) {
-          const ids = matches.map(s => `\`${s.id}\` (${s.topic})`).join('\n');
+          const ids = matches.map(s => `\`${s.sessionId}\` (${s.topic})`).join('\n');
           await interaction.editReply(`Multiple sessions match. Be more specific:\n${ids}`);
           return;
         }
@@ -41,7 +41,7 @@ export function endSessionCommand(
 
         if (session.status === 'archived') {
           await interaction.editReply(
-            `Session \`${session.id}\` is already archived.`
+            `Session \`${session.sessionId}\` is already archived.`
           );
           return;
         }
@@ -49,13 +49,13 @@ export function endSessionCommand(
         const now = new Date().toISOString();
 
         // Archive the session
-        await sessionStore.update(session.id, {
+        await sessionStore.update(session.sessionId, {
           status: 'archived',
           archivedAt: now,
         });
 
         // Clean up message queue
-        messageQueue.remove(session.id);
+        messageQueue.remove(session.sessionId);
 
         // Post archival notice and rename channel
         try {
@@ -63,7 +63,7 @@ export function endSessionCommand(
           if (channel) {
             const embed = new EmbedBuilder()
               .setTitle('Session Archived')
-              .setDescription(`This session has been archived. Use \`/connect-session session-id:${session.id}\` to resume.`)
+              .setDescription(`This session has been archived. Use \`/connect-session session-id:${session.sessionId}\` to resume.`)
               .setColor(0xF59E0B)
               .setTimestamp();
 
@@ -74,8 +74,8 @@ export function endSessionCommand(
           // Channel may already be deleted
         }
 
-        await interaction.editReply(`Session \`${session.id}\` archived.`);
-        logger.info(`Archived session ${session.id}`);
+        await interaction.editReply(`Session \`${session.sessionId}\` archived.`);
+        logger.info(`Archived session ${session.sessionId}`);
       } catch (err) {
         logger.error('Failed to end session:', err);
         await interaction.editReply(

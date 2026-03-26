@@ -30,8 +30,8 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 | Command | Description |
 |---|---|
 | `/new-session topic:"..."` | Create a new Claude session and dedicated Discord channel |
-| `/list-sessions` | List active sessions (use `all:true` to include archived) |
-| `/connect-session session-id:"..."` | Resume an existing or archived session in a new channel |
+| `/list-sessions` | List sessions sourced directly from Claude CLI — includes sessions started outside Discord. `all:true` to include archived/unlinked. |
+| `/connect-session session-id:"..."` | Link any Claude CLI session to a Discord channel — works for sessions created outside the bot too |
 | `/end-session session-id:"..."` | Archive a session, rename channel with `archived-` prefix |
 | `/session-info` | Show session details for the current channel |
 | `/reset` | Archive current session and start fresh in the same channel |
@@ -65,6 +65,8 @@ Every message in a session channel is forwarded to Claude — just type normally
 | **Auto-start on boot** | pm2 with launchd (macOS) or systemd (Linux) integration |
 | **Typing indicator** | Discord typing animation while Claude works (refreshed every 9s) |
 | **Message splitting** | Long responses split on word boundaries, preserving code blocks and inline code |
+| **JSONL session discovery** | Sessions listed and resumed directly from Claude CLI's `~/.claude/projects/` — no stale state, works with sessions started outside Discord |
+| **Auto workDir healing** | If a session's working directory is stale, the bot resolves the correct one from JSONL files and auto-updates on the first message |
 | **Session persistence** | Atomic JSON file writes — survives crashes without corruption |
 | **Graceful shutdown** | Drains in-flight tasks, flushes session store, then disconnects |
 | **Discord formatting** | System prompt enforces Discord-compatible markdown (no tables, no `---`) |
@@ -245,6 +247,7 @@ Global slash commands take **up to 1 hour** to appear after first registration.
 | `CLAUDE_CLI_PATH` | No | `claude` | Path to Claude CLI binary |
 | `CLAUDE_CLI_TIMEOUT` | No | `86400000` (24h) | CLI timeout in milliseconds |
 | `CLAUDE_WORK_DIR` | No | `/workspace` | Claude CLI working directory. **Native**: your workspace path |
+| `CLAUDE_HOME` | No | `~/.claude` | Claude CLI home directory (where session JSONL files live). **Docker**: auto-detects `/home/mindbridge/.claude` |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error` |
 
 The `.env` file is loaded automatically via `dotenv` — no need to `source .env` before starting.

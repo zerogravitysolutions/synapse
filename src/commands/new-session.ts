@@ -38,17 +38,13 @@ export function newSessionCommand(
         // 2. Create Discord channel with the real session ID
         channel = await channelManager.createSessionChannel(guild, topic, result.sessionId);
 
-        // 3. Save session
-        const now = new Date().toISOString();
+        // 3. Save channel mapping
         await sessionStore.create({
-          id: result.sessionId,
+          sessionId: result.sessionId,
           topic,
           status: 'active',
           channelId: channel.id,
           guildId: guild.id,
-          createdAt: now,
-          lastActiveAt: now,
-          messageCount: 1,
           workDir: config.claudeWorkDir,
         });
 

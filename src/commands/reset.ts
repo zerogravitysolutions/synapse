@@ -27,17 +27,17 @@ export function resetCommand(
       await interaction.deferReply();
 
       // Enqueue to wait for any in-flight task to finish
-      await messageQueue.enqueue(session.id, async () => {
+      await messageQueue.enqueue(session.sessionId, async () => {
         const channel = interaction.channel as TextChannel;
 
         try {
           // Archive old session
-          await sessionStore.update(session.id, {
+          await sessionStore.update(session.sessionId, {
             status: 'archived',
             archivedAt: new Date().toISOString(),
           });
-          messageQueue.remove(session.id);
-          activityTracker.clear(session.id);
+          messageQueue.remove(session.sessionId);
+          activityTracker.clear(session.sessionId);
 
           // Start a fresh session
           const result = await claudeCli.startSession(
@@ -45,17 +45,13 @@ export function resetCommand(
             session.workDir,
           );
 
-          // Create new session pointing to the same channel
-          const now = new Date().toISOString();
+          // Create new mapping pointing to the same channel
           await sessionStore.create({
-            id: result.sessionId,
+            sessionId: result.sessionId,
             topic: session.topic,
             status: 'active',
             channelId: channel.id,
             guildId: session.guildId,
-            createdAt: now,
-            lastActiveAt: now,
-            messageCount: 1,
             workDir: session.workDir,
           });
 
@@ -70,7 +66,7 @@ export function resetCommand(
             .setTimestamp();
 
           await interaction.editReply({ embeds: [embed] });
-          logger.info(`Reset session in channel ${channel.id}: ${session.id} -> ${result.sessionId}`);
+          logger.info(`Reset session in channel ${channel.id}: ${session.sessionId} -> ${result.sessionId}`);
         } catch (err) {
           logger.error('Failed to reset session:', err);
           await interaction.editReply(

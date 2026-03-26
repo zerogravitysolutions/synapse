@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { createBot } from './bot.js';
 import { ClaudeCli } from './services/claude-cli.js';
 import { SessionStore } from './services/session-store.js';
+import { CliSessionReader } from './services/cli-session-reader.js';
 import { MessageQueue } from './services/message-queue.js';
 import { ChannelManager } from './services/channel-manager.js';
 import { MessageHandler } from './services/message-handler.js';
@@ -28,21 +29,22 @@ async function main() {
   // Initialize services
   const claudeCli = new ClaudeCli(config);
   const sessionStore = new SessionStore(config.sessionFilePath);
+  const cliSessionReader = new CliSessionReader(config.claudeHome);
   const messageQueue = new MessageQueue();
   const activityTracker = new ActivityTracker();
   const taskController = new TaskController();
   const channelManager = new ChannelManager(config.categoryName);
 
-  // Load persisted sessions
+  // Load persisted channel mappings
   await sessionStore.load();
 
   // Build commands
   const commands = [
     newSessionCommand(claudeCli, sessionStore, channelManager, config),
-    listSessionsCommand(sessionStore),
-    connectSessionCommand(claudeCli, sessionStore, channelManager),
+    listSessionsCommand(sessionStore, cliSessionReader, config.claudeWorkDir),
+    connectSessionCommand(claudeCli, sessionStore, channelManager, cliSessionReader, config),
     endSessionCommand(sessionStore, channelManager, messageQueue),
-    sessionInfoCommand(sessionStore, activityTracker),
+    sessionInfoCommand(sessionStore, activityTracker, cliSessionReader),
     pingCommand(sessionStore, activityTracker),
     pingmeCommand(sessionStore, activityTracker),
     stopCommand(sessionStore, activityTracker, messageQueue, taskController),
@@ -64,6 +66,7 @@ async function main() {
     messageQueue,
     activityTracker,
     taskController,
+    cliSessionReader,
   );
   messageHandler.register(bot.client);
 
