@@ -21,6 +21,6 @@ export function loadConfig(): Config {
     claudeCliTimeout: parseInt(process.env['CLAUDE_CLI_TIMEOUT'] ?? '86400000', 10),
     claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? process.cwd(),
     claudeHome: process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
-    pollerIntervalMs: parseInt(process.env['POLLER_INTERVAL_MS'] ?? '30000', 10),
+    pollerIntervalMs: parseInt(process.env['POLLER_INTERVAL_MS'] ?? '90000', 10),
   };
 }
