@@ -21,6 +21,7 @@ import { stopCommand } from './commands/stop.js';
 import { resetCommand } from './commands/reset.js';
 import { asideCommand } from './commands/nudge.js';
 import { interruptCommand } from './commands/inject.js';
+import { ProactivePoller } from './services/proactive-poller.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -55,6 +56,13 @@ async function main() {
 
   // Create bot and register commands
   const bot = createBot(config);
+  const proactivePoller = new ProactivePoller(
+    sessionStore,
+    cliSessionReader,
+    taskController,
+    bot.client,
+    config.pollerIntervalMs,
+  );
   for (const cmd of commands) {
     bot.registerCommand(cmd);
   }
@@ -67,6 +75,7 @@ async function main() {
     activityTracker,
     taskController,
     cliSessionReader,
+    proactivePoller,
   );
   messageHandler.register(bot.client);
 
@@ -89,6 +98,9 @@ async function main() {
     // Wait for in-flight queue tasks
     await messageQueue.drain();
 
+    // Stop poller
+    proactivePoller.stop();
+
     // Final save
     await sessionStore.flush();
 
@@ -102,8 +114,9 @@ async function main() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Login
+  // Login and start poller
   await bot.login();
+  proactivePoller.start();
   logger.info('MindBridge is running');
 }
 

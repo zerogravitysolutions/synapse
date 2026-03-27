@@ -83,4 +83,5 @@ export interface Config {
   claudeCliTimeout: number;
   claudeWorkDir: string;
   claudeHome: string;
+  pollerIntervalMs: number;
 }

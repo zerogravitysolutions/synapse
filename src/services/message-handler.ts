@@ -9,6 +9,7 @@ import type { MessageQueue } from './message-queue.js';
 import type { ActivityTracker, SessionActivity } from './activity-tracker.js';
 import type { TaskController } from './task-controller.js';
 import type { CliSessionReader } from './cli-session-reader.js';
+import type { ProactivePoller } from './proactive-poller.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
@@ -19,6 +20,7 @@ export class MessageHandler {
   private activityTracker: ActivityTracker;
   private taskController: TaskController;
   private cliSessionReader: CliSessionReader;
+  private proactivePoller: ProactivePoller | null;
 
   constructor(
     claudeCli: ClaudeCli,
@@ -27,6 +29,7 @@ export class MessageHandler {
     activityTracker: ActivityTracker,
     taskController: TaskController,
     cliSessionReader: CliSessionReader,
+    proactivePoller: ProactivePoller | null = null,
   ) {
     this.claudeCli = claudeCli;
     this.sessionStore = sessionStore;
@@ -34,6 +37,7 @@ export class MessageHandler {
     this.activityTracker = activityTracker;
     this.taskController = taskController;
     this.cliSessionReader = cliSessionReader;
+    this.proactivePoller = proactivePoller;
   }
 
   register(client: Client): void {
@@ -128,6 +132,9 @@ export class MessageHandler {
       this.activityTracker.clear(sessionId);
       this.taskController.remove(sessionId);
 
+      // Advance poller pointer so bot-generated lines are never re-posted
+      this.proactivePoller?.markSeen(sessionId, workDir).catch(() => {});
+
       const filesToSend = await this.collectAttachableFiles(result.text);
 
       // Handle empty responses — build a summary from activity data
@@ -168,6 +175,7 @@ export class MessageHandler {
     } catch (err) {
       stopTyping();
       this.activityTracker.clear(sessionId);
+      this.proactivePoller?.markSeen(sessionId, workDir).catch(() => {});
 
       // Check for pending inject before removing — consume it first
       const injectMessage = this.taskController.consumeInject(sessionId);
