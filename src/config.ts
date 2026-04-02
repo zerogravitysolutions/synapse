@@ -16,7 +16,7 @@ export function loadConfig(): Config {
     discordAppId: requireEnv('DISCORD_CLIENT_ID'),
     categoryName: process.env['SESSION_CATEGORY_NAME'] ?? 'CLAUDE SESSIONS',
     archiveCategoryName: process.env['SESSION_ARCHIVE_CATEGORY_NAME'] ?? 'Archived',
-    sessionFilePath: process.env['SESSION_FILE_PATH'] ?? '/data/sessions.json',
+    sessionFilePath: process.env['SESSION_FILE_PATH'] ?? join(homedir(), '.mindbridge', 'sessions.json'),
     claudeCliPath: process.env['CLAUDE_CLI_PATH'] ?? 'claude',
     claudeCliTimeout: parseInt(process.env['CLAUDE_CLI_TIMEOUT'] ?? '86400000', 10),
     claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? process.cwd(),

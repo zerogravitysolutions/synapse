@@ -1,5 +1,5 @@
 import { readdir, open } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { CliSessionMeta } from '../types.js';
@@ -18,16 +18,18 @@ export class CliSessionReader {
 
   /** Convert a workDir path to the Claude CLI project directory name. */
   workDirToProjectPath(workDir: string): string {
-    // Claude CLI converts absolute paths by replacing / with -
-    // e.g. /Users/foo/workspace/synapse -> -Users-foo-workspace-synapse
-    return workDir.replace(/\//g, '-');
+    // Claude CLI converts absolute paths by replacing path separators with -
+    // e.g. /Users/foo/workspace -> -Users-foo-workspace (Unix)
+    // e.g. C:\Users\foo\workspace -> C-Users-foo-workspace (Windows)
+    return workDir.replace(/[/\\:]/g, '-');
   }
 
   /** Convert a Claude CLI project directory name back to a workDir path. */
   private projectPathToWorkDir(projectDirName: string): string {
-    // Reverse of workDirToProjectPath: replace - with /
-    // e.g. -Users-foo-workspace-synapse -> /Users/foo/workspace/synapse
-    return projectDirName.replace(/-/g, '/');
+    // Reverse of workDirToProjectPath: replace - with the platform separator
+    // e.g. -Users-foo-workspace -> /Users/foo/workspace (Unix)
+    // e.g. C-Users-foo-workspace -> C\Users\foo\workspace (Windows)
+    return projectDirName.replace(/-/g, sep);
   }
 
   /** Get the full path to the project's session directory. */

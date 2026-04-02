@@ -29,7 +29,7 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 
 | Command | Description |
 |---|---|
-| `/new-session topic:"..."` | Create a new Claude session and dedicated Discord channel |
+| `/new-session topic:"..." [model:"..."] [effort:"..."]` | Create a new Claude session and dedicated Discord channel. Optional `model` (e.g. `opus`, `sonnet`) and `effort` (`low`/`medium`/`high`/`max`) override the global defaults for this session. |
 | `/list-sessions` | List sessions sourced directly from Claude CLI — includes sessions started outside Discord. `all:true` to include archived/unlinked. |
 | `/connect-session session-id:"..."` | Link any Claude CLI session to a Discord channel — works for sessions created outside the bot too |
 | `/end-session session-id:"..."` | Archive a session, rename channel with `archived-` prefix |
@@ -45,6 +45,8 @@ Runs 24/7 using a Claude Max subscription or Anthropic API key. Works on macOS, 
 | `/stop` | Cancel the running task (waits for file edits to finish) |
 | `/aside message:"..."` | Send a parallel question without interrupting the running task (forks the session) |
 | `/interrupt message:"..."` | Stop the current task at the next tool boundary and redirect Claude |
+| `/set-model model:"..."` | Change the Claude model for the current session (e.g. `opus`, `sonnet`, `claude-opus-4-5`) |
+| `/set-effort effort:"..."` | Change the effort level for the current session (`low`/`medium`/`high`/`max`) |
 
 Every message in a session channel is forwarded to Claude — just type normally.
 
@@ -61,6 +63,7 @@ Every message in a session channel is forwarded to Claude — just type normally
 | **Parallel questions** | `/aside` forks the session for side questions without interrupting work |
 | **Task redirection** | `/interrupt` stops at the next tool boundary and sends a new instruction |
 | **File attachments** | Send screenshots/files to Claude and receive generated files back |
+| **Per-session model/effort** | Set model and effort per session via `/set-model`, `/set-effort`, or `/new-session` params. Falls back to global `CLAUDE_MODEL`/`CLAUDE_EFFORT` defaults |
 | **Auto .env loading** | Uses `dotenv` — no need to source `.env` manually |
 | **Auto-start on boot** | pm2 with launchd (macOS) or systemd (Linux) integration |
 | **Typing indicator** | Discord typing animation while Claude works (refreshed every 9s) |
@@ -109,7 +112,8 @@ Discord Gateway (discord.js v14)
                                v
                   Claude CLI (stream-json + verbose)
                   claude -p --dangerously-skip-permissions
-                    --resume <id> --output-format stream-json
+                    --resume <id> --model <model> --effort <effort>
+                    --output-format stream-json
                                |
                   Streaming events: activity, tools, goal, skills, todos
                                |
@@ -145,7 +149,7 @@ Use `/pingme interval:"5m"` to get these updates automatically on a timer. Auto-
 
 Attach any file (screenshot, CSV, PDF, code file, etc.) to a message in a session channel. The bot:
 
-1. Downloads each attachment to `/tmp/mindbridge-uploads/{channelId}/`
+1. Downloads each attachment to `{os.tmpdir()}/mindbridge-uploads/{channelId}/`
 2. Appends the file paths to the message with a hint to use the Read tool
 3. Claude reads the files and responds accordingly
 
@@ -243,11 +247,13 @@ Global slash commands take **up to 1 hour** to appear after first registration.
 | `CLAUDE_CODE_OAUTH_TOKEN` | One of these | — | Claude Max subscription token (`sk-ant-oat01-...` via `claude setup-token`) |
 | `ANTHROPIC_API_KEY` | One of these | — | Anthropic API key (`sk-ant-api03-...`, pay per usage) |
 | `SESSION_CATEGORY_NAME` | No | `CLAUDE SESSIONS` | Discord category for session channels |
-| `SESSION_FILE_PATH` | No | `/data/sessions.json` | Session persistence path. **Native**: `./data/sessions.json` |
+| `SESSION_FILE_PATH` | No | `~/.mindbridge/sessions.json` | Session persistence path. **Docker**: `/data/sessions.json`. **Native**: `./data/sessions.json` |
 | `CLAUDE_CLI_PATH` | No | `claude` | Path to Claude CLI binary |
 | `CLAUDE_CLI_TIMEOUT` | No | `86400000` (24h) | CLI timeout in milliseconds |
 | `CLAUDE_WORK_DIR` | No | `/workspace` | Claude CLI working directory. **Native**: your workspace path |
 | `CLAUDE_HOME` | No | `~/.claude` | Claude CLI home directory (where session JSONL files live). **Docker**: auto-detects `/home/mindbridge/.claude` |
+| `CLAUDE_MODEL` | No | `opus` | Default Claude model. Alias (`opus`, `sonnet`) or full name (`claude-opus-4-5`). Per-session override via `/set-model`. |
+| `CLAUDE_EFFORT` | No | `max` | Default effort level (`low`/`medium`/`high`/`max`). Per-session override via `/set-effort`. |
 | `LOG_LEVEL` | No | `info` | `debug` / `info` / `warn` / `error` |
 
 The `.env` file is loaded automatically via `dotenv` — no need to `source .env` before starting.
@@ -367,6 +373,8 @@ synapse/
 |   |   +-- reset.ts              # /reset
 |   |   +-- nudge.ts              # /aside (fork session for parallel questions)
 |   |   +-- inject.ts             # /interrupt (redirect at tool boundary)
+|   |   +-- set-model.ts          # /set-model (per-session model override)
+|   |   +-- set-effort.ts         # /set-effort (per-session effort override)
 |   +-- services/
 |   |   +-- claude-cli.ts         # Claude CLI wrapper (spawn, streaming, fork, system prompt)
 |   |   +-- session-store.ts      # Session CRUD, atomic JSON persistence

@@ -2,6 +2,7 @@ import type { Client, Message, TextChannel } from 'discord.js';
 import { EmbedBuilder, Events } from 'discord.js';
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { ClaudeCli } from './claude-cli.js';
 import type { CliResult } from '../types.js';
 import type { SessionStore } from './session-store.js';
@@ -267,7 +268,7 @@ export class MessageHandler {
   private async downloadAttachments(message: Message): Promise<string[]> {
     if (!message.attachments.size) return [];
 
-    const uploadDir = join('/tmp', 'mindbridge-uploads', message.channelId);
+    const uploadDir = join(tmpdir(), 'mindbridge-uploads', message.channelId);
     await mkdir(uploadDir, { recursive: true });
 
     const paths: string[] = [];
@@ -302,10 +303,11 @@ export class MessageHandler {
   }
 
   private async collectAttachableFiles(text: string): Promise<string[]> {
-    const FILE_PATH_RE = /(\/[\w\-.\/]+\.\w+)\b/g;
+    // Match Unix paths (/path/to/file.ext) and Windows paths (C:\path\to\file.ext)
+    const FILE_PATH_RE = /(?:\/[\w\-.\/]+\.\w+|[A-Z]:[\\\/][\w\-.\\\/]+\.\w+)\b/gi;
 
     const matches = [...text.matchAll(FILE_PATH_RE)];
-    const candidates = [...new Set(matches.map(m => m[1]))];
+    const candidates = [...new Set(matches.map(m => m[0]))];
 
     const files: string[] = [];
     let totalSize = 0;

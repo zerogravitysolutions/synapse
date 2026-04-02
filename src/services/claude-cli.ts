@@ -323,7 +323,7 @@ export class ClaudeCli {
 
     const shorten = (path: string) => {
       // Show last 2 path segments: "src/services/auth.ts"
-      const parts = path.split('/');
+      const parts = path.split(/[/\\]/);
       return parts.length > 2 ? parts.slice(-2).join('/') : path;
     };
 

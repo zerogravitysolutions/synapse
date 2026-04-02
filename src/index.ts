@@ -103,6 +103,8 @@ async function main() {
     process.exit(0);
   }
 
+  // SIGINT works cross-platform (Ctrl+C). SIGTERM may not fire on Windows
+  // but the handler is harmless — it simply won't trigger.
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 

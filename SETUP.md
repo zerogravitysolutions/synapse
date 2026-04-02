@@ -1,6 +1,6 @@
 # MindBridge — Setup Guide
 
-Instructions for setting up MindBridge. Works on **macOS**, **Linux**, and **Windows** (Docker mode on all three; Native mode on macOS/Linux, Windows users should use Docker or WSL).
+Instructions for setting up MindBridge. Works natively on **macOS**, **Linux**, and **Windows**. Docker mode also supported on all three.
 
 If you are an AI agent, follow these steps in order. Run commands directly when possible. When user input is needed, ask the user clearly for the specific information required.
 
@@ -171,7 +171,7 @@ docker compose logs --tail 10
 Look for these lines:
 
 ```
-[INFO] Registering 11 global slash commands...
+[INFO] Registering 13 global slash commands...
 [INFO] Slash commands registered successfully
 [INFO] Bot logged in as MindBridge#XXXX
 [INFO] MindBridge is running
