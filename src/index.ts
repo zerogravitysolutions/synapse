@@ -21,6 +21,8 @@ import { stopCommand } from './commands/stop.js';
 import { resetCommand } from './commands/reset.js';
 import { asideCommand } from './commands/nudge.js';
 import { interruptCommand } from './commands/inject.js';
+import { setModelCommand } from './commands/set-model.js';
+import { setEffortCommand } from './commands/set-effort.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -51,6 +53,8 @@ async function main() {
     resetCommand(claudeCli, sessionStore, messageQueue, activityTracker),
     asideCommand(sessionStore, claudeCli),
     interruptCommand(sessionStore, activityTracker, taskController),
+    setModelCommand(sessionStore),
+    setEffortCommand(sessionStore),
   ];
 
   // Create bot and register commands

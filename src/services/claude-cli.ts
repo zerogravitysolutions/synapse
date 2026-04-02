@@ -40,25 +40,25 @@ export class ClaudeCli {
     this.effort = config.claudeEffort;
   }
 
-  async startSession(message: string, workDir?: string): Promise<CliResult> {
+  async startSession(message: string, workDir?: string, overrides?: { model?: string; effort?: string }): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
-      '--model', this.model,
-      '--effort', this.effort,
+      '--model', overrides?.model ?? this.model,
+      '--effort', overrides?.effort ?? this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
     ], workDir);
   }
 
-  async resumeSession(sessionId: string, message: string, workDir?: string): Promise<CliResult> {
+  async resumeSession(sessionId: string, message: string, workDir?: string, overrides?: { model?: string; effort?: string }): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
       '--resume', sessionId,
-      '--model', this.model,
-      '--effort', this.effort,
+      '--model', overrides?.model ?? this.model,
+      '--effort', overrides?.effort ?? this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
@@ -66,14 +66,14 @@ export class ClaudeCli {
   }
 
   /** Fork a session and send a message — safe for parallel use, no race condition with the parent. */
-  async forkSession(sessionId: string, message: string, workDir?: string): Promise<CliResult> {
+  async forkSession(sessionId: string, message: string, workDir?: string, overrides?: { model?: string; effort?: string }): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
       '--resume', sessionId,
       '--fork-session',
-      '--model', this.model,
-      '--effort', this.effort,
+      '--model', overrides?.model ?? this.model,
+      '--effort', overrides?.effort ?? this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
@@ -93,13 +93,14 @@ export class ClaudeCli {
     },
     externalAbort?: AbortController,
     workDir?: string,
+    overrides?: { model?: string; effort?: string },
   ): Promise<CliResult> {
     const args = [
       '-p',
       '--dangerously-skip-permissions',
       '--resume', sessionId,
-      '--model', this.model,
-      '--effort', this.effort,
+      '--model', overrides?.model ?? this.model,
+      '--effort', overrides?.effort ?? this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'stream-json',
       '--verbose',

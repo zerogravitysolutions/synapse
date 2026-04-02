@@ -15,6 +15,8 @@ export interface ChannelMapping {
   guildId: string;
   workDir?: string;
   archivedAt?: string;
+  model?: string;
+  effort?: string;
 }
 
 export interface ChannelMappingFile {

@@ -19,10 +19,24 @@ export function newSessionCommand(
       .setDescription('Create a new Claude Code session')
       .addStringOption(opt =>
         opt.setName('topic').setDescription('Topic for the session').setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName('model').setDescription('Model override (e.g. opus, sonnet, claude-opus-4-5)').setRequired(false)
+      )
+      .addStringOption(opt =>
+        opt.setName('effort').setDescription('Effort level').setRequired(false)
+          .addChoices(
+            { name: 'low', value: 'low' },
+            { name: 'medium', value: 'medium' },
+            { name: 'high', value: 'high' },
+            { name: 'max', value: 'max' },
+          )
       ),
 
     async execute(interaction) {
       const topic = interaction.options.getString('topic', true);
+      const model = interaction.options.getString('model') ?? undefined;
+      const effort = interaction.options.getString('effort') ?? undefined;
       const guild = interaction.guild!;
 
       await interaction.deferReply();
@@ -30,15 +44,22 @@ export function newSessionCommand(
       let channel: TextChannel | null = null;
 
       try {
+        // Build per-session overrides
+        const overrides: { model?: string; effort?: string } = {};
+        if (model) overrides.model = model;
+        if (effort) overrides.effort = effort;
+
         // 1. Start Claude session first to get the real session ID
         const result = await claudeCli.startSession(
-          `You are starting a new session. The topic is: ${topic}. Introduce yourself briefly and confirm the topic.`
+          `You are starting a new session. The topic is: ${topic}. Introduce yourself briefly and confirm the topic.`,
+          undefined,
+          Object.keys(overrides).length > 0 ? overrides : undefined,
         );
 
         // 2. Create Discord channel with the real session ID
         channel = await channelManager.createSessionChannel(guild, topic, result.sessionId);
 
-        // 3. Save channel mapping
+        // 3. Save channel mapping (persist per-session model/effort)
         await sessionStore.create({
           sessionId: result.sessionId,
           topic,
@@ -46,6 +67,8 @@ export function newSessionCommand(
           channelId: channel.id,
           guildId: guild.id,
           workDir: config.claudeWorkDir,
+          ...(model && { model }),
+          ...(effort && { effort }),
         });
 
         // 4. Post Claude's response in the new channel

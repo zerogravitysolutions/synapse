@@ -63,13 +63,18 @@ export class MessageHandler {
       await this.sessionStore.update(session.sessionId, { workDir: resolvedWorkDir });
     }
 
+    // Build per-session overrides (model/effort)
+    const overrides: { model?: string; effort?: string } = {};
+    if (session.model) overrides.model = session.model;
+    if (session.effort) overrides.effort = session.effort;
+
     // Forward to Claude via queue
     this.messageQueue.enqueue(session.sessionId, async () => {
-      await this.forwardToClaude(message, session.sessionId, workDir);
+      await this.forwardToClaude(message, session.sessionId, workDir, overrides);
     });
   }
 
-  private async forwardToClaude(message: Message, sessionId: string, workDir?: string): Promise<void> {
+  private async forwardToClaude(message: Message, sessionId: string, workDir?: string, overrides?: { model?: string; effort?: string }): Promise<void> {
     const channel = message.channel as TextChannel;
     const stopTyping = this.startTyping(channel);
 
@@ -121,6 +126,7 @@ export class MessageHandler {
         },
         abortController,
         workDir,
+        overrides,
       );
 
       const activity = this.activityTracker.get(sessionId);
