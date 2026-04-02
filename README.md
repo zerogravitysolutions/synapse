@@ -214,6 +214,8 @@ When Claude's response mentions file paths (e.g. `/workspace/project/settings.gr
 
 ## Quick Start
 
+> **AI agents**: Follow **[SETUP.md](SETUP.md)** for agent-executable setup instructions — it tells you what to run, what to ask the user for, and in what order.
+
 See **[SETUP.md](SETUP.md)** for a detailed step-by-step walkthrough including Discord bot creation, OAuth token setup, and deployment.
 
 ### Quick version
