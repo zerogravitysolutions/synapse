@@ -83,4 +83,6 @@ export interface Config {
   claudeCliTimeout: number;
   claudeWorkDir: string;
   claudeHome: string;
+  claudeModel: string;
+  claudeEffort: string;
 }

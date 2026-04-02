@@ -29,17 +29,23 @@ export class ClaudeCli {
   private cliPath: string;
   private timeout: number;
   private workDir: string;
+  private model: string;
+  private effort: string;
 
   constructor(config: Config) {
     this.cliPath = config.claudeCliPath;
     this.timeout = config.claudeCliTimeout;
     this.workDir = config.claudeWorkDir;
+    this.model = config.claudeModel;
+    this.effort = config.claudeEffort;
   }
 
   async startSession(message: string, workDir?: string): Promise<CliResult> {
     return this.execute([
       '-p',
       '--dangerously-skip-permissions',
+      '--model', this.model,
+      '--effort', this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
@@ -51,6 +57,8 @@ export class ClaudeCli {
       '-p',
       '--dangerously-skip-permissions',
       '--resume', sessionId,
+      '--model', this.model,
+      '--effort', this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
@@ -64,6 +72,8 @@ export class ClaudeCli {
       '--dangerously-skip-permissions',
       '--resume', sessionId,
       '--fork-session',
+      '--model', this.model,
+      '--effort', this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'json',
       message,
@@ -88,6 +98,8 @@ export class ClaudeCli {
       '-p',
       '--dangerously-skip-permissions',
       '--resume', sessionId,
+      '--model', this.model,
+      '--effort', this.effort,
       '--system-prompt', DISCORD_SYSTEM_PROMPT,
       '--output-format', 'stream-json',
       '--verbose',

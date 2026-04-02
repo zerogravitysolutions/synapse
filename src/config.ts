@@ -21,5 +21,7 @@ export function loadConfig(): Config {
     claudeCliTimeout: parseInt(process.env['CLAUDE_CLI_TIMEOUT'] ?? '86400000', 10),
     claudeWorkDir: process.env['CLAUDE_WORK_DIR'] ?? process.cwd(),
     claudeHome: process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
+    claudeModel: process.env['CLAUDE_MODEL'] ?? 'opus',
+    claudeEffort: process.env['CLAUDE_EFFORT'] ?? 'max',
   };
 }
