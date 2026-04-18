@@ -1,9 +1,16 @@
-import { readdir, open } from 'node:fs/promises';
+import { readdir, open, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import type { CliSessionMeta } from '../types.js';
+import type { CliSessionMeta, RecentActivity } from '../types.js';
 import { logger } from '../utils/logger.js';
+
+// How many bytes from the end of the JSONL to parse for recent-activity extraction.
+// 500KB comfortably fits many assistant turns without loading 25+ MB files.
+const TAIL_BYTES = 500_000;
+
+// Below this event-age, we still treat the session as "running".
+const RUNNING_WINDOW_MS = 60_000;
 
 /**
  * Reads Claude CLI session metadata directly from JSONL files.
@@ -185,6 +192,133 @@ export class CliSessionReader {
       })
     );
     return perDir.flat();
+  }
+
+  /**
+   * Read the tail of a session's JSONL and extract recent activity.
+   * Used as a fallback when the in-memory ActivityTracker is empty but the
+   * session is still being written to by a Claude CLI process (e.g. background
+   * job, detached session, bot restart mid-task).
+   *
+   * Parses the last ~500KB, walks events from the last `user` turn forward,
+   * and accumulates tool uses, todos, text, and running-state heuristics.
+   */
+  async readRecentActivity(workDir: string, sessionId: string): Promise<RecentActivity | null> {
+    const filePath = join(this.getProjectDir(workDir), `${sessionId}.jsonl`);
+
+    const fileStat = await stat(filePath).catch(() => null);
+    if (!fileStat) return null;
+
+    const readSize = Math.min(fileStat.size, TAIL_BYTES);
+    const startPos = fileStat.size - readSize;
+
+    let text: string;
+    const fileHandle = await open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(readSize);
+      await fileHandle.read(buffer, 0, readSize, startPos);
+      text = buffer.toString('utf-8');
+    } catch (err) {
+      logger.warn(`Failed to tail session JSONL ${filePath}:`, err);
+      await fileHandle.close();
+      return null;
+    }
+    await fileHandle.close();
+
+    const rawLines = text.split('\n');
+    // If we started mid-file, the first line is probably truncated — discard it.
+    if (startPos > 0 && rawLines.length > 0) rawLines.shift();
+
+    // First pass: parse all lines into objects and locate the last `user` turn.
+    const events: Array<Record<string, unknown>> = [];
+    let lastUserIdx = -1;
+    for (const line of rawLines) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line) as Record<string, unknown>;
+        events.push(obj);
+        // A "real" user turn is a top-level `user` event carrying a text content.
+        // `user` events that are tool_result replies also exist — those don't
+        // start a new user turn, so we distinguish by message.content shape.
+        if (obj.type === 'user' && this.isUserPromptEvent(obj)) {
+          lastUserIdx = events.length - 1;
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    if (events.length === 0) return null;
+
+    // Second pass: walk forward from the last user turn, building snapshot.
+    let lastTimestamp: string | null = null;
+    let lastEventType: string | null = null;
+    let lastText: string | null = null;
+    let lastToolUse: RecentActivity['lastToolUse'] = null;
+    let lastResultText: string | null = null;
+    let todos: RecentActivity['todos'] = [];
+    const toolCounts: Record<string, number> = {};
+
+    const startIdx = Math.max(0, lastUserIdx + 1);
+    for (let i = startIdx; i < events.length; i++) {
+      const obj = events[i];
+      if (typeof obj.timestamp === 'string') lastTimestamp = obj.timestamp;
+      if (typeof obj.type === 'string') lastEventType = obj.type;
+
+      if (obj.type === 'assistant' && obj.message && typeof obj.message === 'object') {
+        const msg = obj.message as { content?: unknown };
+        const blocks = Array.isArray(msg.content) ? msg.content : [];
+        for (const block of blocks) {
+          if (!block || typeof block !== 'object') continue;
+          const b = block as Record<string, unknown>;
+          if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
+            lastText = b.text;
+          }
+          if (b.type === 'tool_use' && typeof b.name === 'string') {
+            const input = (b.input && typeof b.input === 'object') ? b.input as Record<string, unknown> : undefined;
+            lastToolUse = { name: b.name, input };
+            toolCounts[b.name] = (toolCounts[b.name] ?? 0) + 1;
+            if (b.name === 'TodoWrite' && input && Array.isArray(input.todos)) {
+              todos = (input.todos as Array<Record<string, unknown>>).map(t => ({
+                id: String(t.id ?? ''),
+                content: String(t.content ?? ''),
+                status: String(t.status ?? 'pending'),
+              }));
+            }
+          }
+        }
+      }
+
+      if (obj.type === 'result' && typeof (obj as { result?: unknown }).result === 'string') {
+        lastResultText = (obj as { result: string }).result;
+      }
+    }
+
+    const lastMs = lastTimestamp ? new Date(lastTimestamp).getTime() : 0;
+    const ageMs = Date.now() - lastMs;
+    const isRunning = lastEventType !== 'result' && ageMs < RUNNING_WINDOW_MS;
+
+    return {
+      sessionId,
+      workDir,
+      lastActiveAt: lastTimestamp ?? new Date().toISOString(),
+      lastText,
+      lastToolUse,
+      toolCounts,
+      todos,
+      isRunning,
+      lastResultText,
+    };
+  }
+
+  /**
+   * Check whether a `user`-typed event is an actual user prompt (text input)
+   * rather than a tool_result reply. Tool results also serialize as type=user.
+   */
+  private isUserPromptEvent(obj: Record<string, unknown>): boolean {
+    const msg = obj.message as { content?: unknown } | undefined;
+    if (!msg || !Array.isArray(msg.content)) return false;
+    // Tool-result user events only contain `tool_result` blocks.
+    // Real user prompts contain `text` blocks (or plain string content).
+    return msg.content.some(b => b && typeof b === 'object' && (b as { type?: string }).type === 'text');
   }
 
   /** List all sessions with metadata for a given workDir. */

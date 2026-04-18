@@ -2,33 +2,48 @@ import { SlashCommandBuilder, type TextChannel } from 'discord.js';
 import type { Command } from '../types.js';
 import type { SessionStore } from '../services/session-store.js';
 import type { ActivityTracker } from '../services/activity-tracker.js';
-import { formatActivity } from '../utils/format-activity.js';
+import type { CliSessionReader } from '../services/cli-session-reader.js';
+import { formatActivity, formatRecentActivity } from '../utils/format-activity.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
-const activeTimers = new Map<string, NodeJS.Timeout>();
+interface ActiveTimer {
+  timer: NodeJS.Timeout;
+  context: string | null;
+}
+
+const activeTimers = new Map<string, ActiveTimer>();
 
 export function pingmeCommand(
   sessionStore: SessionStore,
   activityTracker: ActivityTracker,
+  cliSessionReader: CliSessionReader,
 ): Command {
   return {
     data: new SlashCommandBuilder()
       .setName('pingme')
-      .setDescription('Auto-send progress updates (goal, steps, tools, duration) at an interval')
+      .setDescription('Auto-send progress updates at an interval — works for foreground and background sessions')
       .addStringOption(opt =>
-        opt.setName('interval').setDescription('Update interval (e.g. 5m, 30s, 1h) or "stop"').setRequired(true)
+        opt.setName('interval')
+          .setDescription('Update interval (e.g. 5m, 30s, 1h) or "stop"')
+          .setRequired(true)
+      )
+      .addStringOption(opt =>
+        opt.setName('context')
+          .setDescription('What you\'re trying to get from this job — shown on every update as a reminder')
+          .setRequired(false)
       ),
 
     async execute(interaction) {
       const input = interaction.options.getString('interval', true).trim().toLowerCase();
+      const context = interaction.options.getString('context')?.trim() || null;
       const channelId = interaction.channelId;
 
       // Stop existing timer
       if (input === 'stop' || input === '0') {
         const existing = activeTimers.get(channelId);
         if (existing) {
-          clearInterval(existing);
+          clearInterval(existing.timer);
           activeTimers.delete(channelId);
           await interaction.reply('Stopped periodic progress updates.');
         } else {
@@ -46,57 +61,94 @@ export function pingmeCommand(
 
       const session = sessionStore.findByChannelId(channelId);
       if (!session) {
-        await interaction.reply('No active session in this channel.');
+        await interaction.reply('No active session mapped to this channel.');
         return;
       }
 
       // Clear existing timer for this channel
       const existing = activeTimers.get(channelId);
       if (existing) {
-        clearInterval(existing);
+        clearInterval(existing.timer);
       }
 
       const channel = interaction.channel as TextChannel;
 
-      // Capture the taskId of the current task so we stop when it changes
-      const currentActivity = activityTracker.get(session.sessionId);
-      const startTaskId = currentActivity?.taskId ?? 0;
-
       const timer = setInterval(async () => {
-        const currentSession = sessionStore.findByChannelId(channelId);
-        if (!currentSession) {
-          clearInterval(timer);
-          activeTimers.delete(channelId);
-          return;
-        }
+        try {
+          const currentSession = sessionStore.findByChannelId(channelId);
+          if (!currentSession) {
+            clearInterval(timer);
+            activeTimers.delete(channelId);
+            return;
+          }
 
-        const activity = activityTracker.get(currentSession.sessionId);
+          const update = await buildProgressUpdate(
+            currentSession.sessionId,
+            currentSession.workDir,
+            context,
+            activityTracker,
+            cliSessionReader,
+          );
 
-        // Stop if: no activity, or the task changed (old task finished, new one started)
-        if (!activity || (startTaskId && activity.taskId !== startTaskId)) {
-          clearInterval(timer);
-          activeTimers.delete(channelId);
-          await channel.send('Auto-ping stopped — task completed.').catch(() => {});
-          return;
-        }
+          if (!update) {
+            // No live activity AND no JSONL found — session truly has nothing.
+            // Don't stop automatically; the user may be waiting for the job to start.
+            logger.debug(`No activity data for session ${currentSession.sessionId}`);
+            return;
+          }
 
-        const status = formatActivity(activity);
-        const full = `### Scheduled Progress Update\n${status}`;
-        const chunks = splitMessage(full);
-        for (const chunk of chunks) {
-          await channel.send(chunk).catch(err => {
-            logger.warn('Failed to send auto-ping:', err);
-          });
+          const header = `### Scheduled Progress Update`;
+          const chunks = splitMessage(`${header}\n${update}`);
+          for (const chunk of chunks) {
+            await channel.send(chunk).catch(err => {
+              logger.warn('Failed to send auto-ping:', err);
+            });
+          }
+        } catch (err) {
+          logger.warn('pingme tick failed:', err);
         }
       }, ms);
 
-      activeTimers.set(channelId, timer);
+      activeTimers.set(channelId, { timer, context });
 
       const label = formatMs(ms);
-      await interaction.reply(`Sending progress updates every **${label}**. Use \`/pingme interval:stop\` to cancel.`);
-      logger.info(`Started auto-ping for channel ${channelId} every ${label}`);
+      const contextLine = context ? `\n> Watching for: *${context}*` : '';
+      await interaction.reply(
+        `Sending progress updates every **${label}**.${contextLine}\nUse \`/pingme interval:stop\` to cancel.`
+      );
+      logger.info(`Started auto-ping for channel ${channelId} every ${label}${context ? ` (context: "${context}")` : ''}`);
     },
   };
+}
+
+/**
+ * Build a progress update. Prefers the live ActivityTracker (richest data)
+ * but falls back to tailing the JSONL when the tracker is empty — e.g.
+ * session is running detached, bot restarted mid-task, or task already finished.
+ */
+async function buildProgressUpdate(
+  sessionId: string,
+  workDir: string | undefined,
+  context: string | null,
+  activityTracker: ActivityTracker,
+  cliSessionReader: CliSessionReader,
+): Promise<string | null> {
+  const live = activityTracker.get(sessionId);
+  if (live) {
+    const base = formatActivity(live);
+    return context ? `> **You're watching for:** ${context}\n\n${base}` : base;
+  }
+
+  // Fallback: read recent activity from the JSONL.
+  // If workDir is missing (shouldn't normally happen), try to resolve it.
+  const resolvedWorkDir = workDir
+    ?? (await cliSessionReader.resolveWorkDir(sessionId)) ?? null;
+  if (!resolvedWorkDir) return null;
+
+  const recent = await cliSessionReader.readRecentActivity(resolvedWorkDir, sessionId);
+  if (!recent) return null;
+
+  return formatRecentActivity(recent, context ?? undefined);
 }
 
 function parseInterval(input: string): number | null {

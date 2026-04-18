@@ -56,6 +56,23 @@ export interface CliSessionMeta {
   workDir: string;
 }
 
+/**
+ * Snapshot of a session's recent state, reconstructed from the tail of its
+ * JSONL file. Used when the live ActivityTracker has no data for the session
+ * (e.g. bot isn't actively streaming, or job is running in background).
+ */
+export interface RecentActivity {
+  sessionId: string;
+  workDir: string;
+  lastActiveAt: string;                // Timestamp of the most recent event in the tail
+  lastText: string | null;             // Last assistant text block (after last user turn)
+  lastToolUse: { name: string; input?: Record<string, unknown> } | null;
+  toolCounts: Record<string, number>;  // Tool uses counted since the last user turn
+  todos: Array<{ id: string; content: string; status: string }>;
+  isRunning: boolean;                  // Last event was not `result` and is < 60s old
+  lastResultText: string | null;       // If the last event is `result`, its text
+}
+
 // --- Claude CLI ---
 
 export interface CliResult {

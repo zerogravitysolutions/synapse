@@ -23,6 +23,7 @@ import { asideCommand } from './commands/nudge.js';
 import { interruptCommand } from './commands/inject.js';
 import { setModelCommand } from './commands/set-model.js';
 import { setEffortCommand } from './commands/set-effort.js';
+import { webhookCommand } from './commands/webhook.js';
 import { logger } from './utils/logger.js';
 
 async function main() {
@@ -48,13 +49,14 @@ async function main() {
     endSessionCommand(sessionStore, channelManager, messageQueue),
     sessionInfoCommand(sessionStore, activityTracker, cliSessionReader),
     pingCommand(sessionStore, activityTracker),
-    pingmeCommand(sessionStore, activityTracker),
+    pingmeCommand(sessionStore, activityTracker, cliSessionReader),
     stopCommand(sessionStore, activityTracker, messageQueue, taskController),
     resetCommand(claudeCli, sessionStore, messageQueue, activityTracker),
     asideCommand(sessionStore, claudeCli),
     interruptCommand(sessionStore, activityTracker, taskController),
     setModelCommand(sessionStore),
     setEffortCommand(sessionStore),
+    webhookCommand(),
   ];
 
   // Create bot and register commands

@@ -1,4 +1,5 @@
 import type { SessionActivity } from '../services/activity-tracker.js';
+import type { RecentActivity } from '../types.js';
 
 export function formatActivity(activity: SessionActivity): string {
   const elapsed = Math.floor((Date.now() - activity.startedAt) / 1000);
@@ -62,6 +63,72 @@ export function formatActivity(activity: SessionActivity): string {
   paragraphs.push(`Been at it for about \`${duration}\`.`);
 
   return paragraphs.join('\n\n');
+}
+
+/**
+ * Format a JSONL-derived activity snapshot for Discord.
+ * Used when the live ActivityTracker has nothing (background / detached session).
+ */
+export function formatRecentActivity(recent: RecentActivity, context?: string): string {
+  const parts: string[] = [];
+
+  if (context) {
+    parts.push(`> **You're watching for:** ${context}`);
+  }
+
+  const statusEmoji = recent.isRunning ? '🟢' : (recent.lastResultText ? '✅' : '⚪');
+  const statusText = recent.isRunning
+    ? 'Running'
+    : recent.lastResultText
+      ? 'Completed'
+      : 'Idle';
+  parts.push(`${statusEmoji} **Status:** ${statusText} *(from session log — no live stream)*`);
+
+  // Task plan (from TodoWrite)
+  if (recent.todos.length > 0) {
+    const todoLines = recent.todos.map(t => {
+      if (t.status === 'completed') return `- [x] ~~${t.content}~~`;
+      if (t.status === 'in_progress') return `- [ ] **${t.content}** *(in progress)*`;
+      return `- [ ] ${t.content}`;
+    });
+    parts.push(`**Tasks:**\n${todoLines.join('\n')}`);
+  }
+
+  // Tool counts since last user turn
+  const totalTools = Object.values(recent.toolCounts).reduce((a, b) => a + b, 0);
+  if (totalTools > 0) {
+    const toolSummary = formatToolSummary(recent.toolCounts);
+    if (toolSummary) parts.push(`Since your last message, Claude has ${toolSummary}.`);
+  }
+
+  // Current tool (if running)
+  if (recent.isRunning && recent.lastToolUse) {
+    parts.push(`**Right now:** using \`${recent.lastToolUse.name}\``);
+  }
+
+  // Last assistant text preview (clipped)
+  if (recent.lastText) {
+    const cleaned = recent.lastText.trim().replace(/\s+/g, ' ');
+    const preview = cleaned.slice(0, 400);
+    parts.push(`> ${preview}${cleaned.length > 400 ? '…' : ''}`);
+  }
+
+  // If completed, show the result preview
+  if (!recent.isRunning && recent.lastResultText) {
+    const cleaned = recent.lastResultText.trim().replace(/\s+/g, ' ');
+    const preview = cleaned.slice(0, 400);
+    parts.push(`**Final result:** ${preview}${cleaned.length > 400 ? '…' : ''}`);
+  }
+
+  // Freshness
+  const ageSec = Math.floor((Date.now() - new Date(recent.lastActiveAt).getTime()) / 1000);
+  let age: string;
+  if (ageSec < 60) age = `${ageSec}s ago`;
+  else if (ageSec < 3600) age = `${Math.floor(ageSec / 60)}m ${ageSec % 60}s ago`;
+  else age = `${Math.floor(ageSec / 3600)}h ${Math.floor((ageSec % 3600) / 60)}m ago`;
+  parts.push(`*Last session event: ${age}*`);
+
+  return parts.join('\n\n');
 }
 
 function formatToolSummary(counts: Record<string, number>): string | null {

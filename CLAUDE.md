@@ -2,6 +2,10 @@
 
 Discord bot bridging channels with Claude Code CLI sessions. TypeScript + discord.js v14. Single runtime dependency.
 
+## Tool Conventions
+
+- **Monitor tool:** Always pass `persistent: true`. Do not use `timeout_ms` unless the user explicitly asks for a bounded run. Stop persistent monitors with `TaskStop` when no longer needed.
+
 ## Setup & Deployment
 
 Two deployment modes: **Docker** (isolated container) and **Native** (full host access).

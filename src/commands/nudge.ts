@@ -5,9 +5,6 @@ import type { ClaudeCli } from '../services/claude-cli.js';
 import { splitMessage } from '../utils/split-message.js';
 import { logger } from '../utils/logger.js';
 
-// Track forked session IDs per main session
-const forkSessions = new Map<string, string>();
-
 export function asideCommand(
   sessionStore: SessionStore,
   claudeCli: ClaudeCli,
@@ -31,33 +28,22 @@ export function asideCommand(
       }
 
       const asideMessage = interaction.options.getString('message', true);
-      const existingFork = forkSessions.get(session.sessionId);
 
       await interaction.deferReply();
 
       const channel = interaction.channel as TextChannel;
 
       try {
-        let result;
-
-        if (existingFork) {
-          // Resume existing fork
-          logger.info(`Aside (resume fork ${existingFork}) for session ${session.sessionId}: "${asideMessage}"`);
-          try {
-            result = await claudeCli.resumeSession(existingFork, asideMessage, session.workDir);
-          } catch {
-            // Fork session lost — create a new one
-            logger.info(`Fork ${existingFork} not found, creating new fork`);
-            forkSessions.delete(session.sessionId);
-            result = await claudeCli.forkSession(session.sessionId, `[Aside from user]: ${asideMessage}`, session.workDir);
-            forkSessions.set(session.sessionId, result.sessionId);
-          }
-        } else {
-          // First aside — fork the session
-          logger.info(`Aside (new fork) for session ${session.sessionId}: "${asideMessage}"`);
-          result = await claudeCli.forkSession(session.sessionId, `[Aside from user]: ${asideMessage}`, session.workDir);
-          forkSessions.set(session.sessionId, result.sessionId);
-        }
+        // Always fork fresh from the main session so the aside has
+        // the latest context up through main's most recent completed turn.
+        // Trade-off: asides don't accumulate history across calls — that's
+        // intentional, otherwise asides would drift from main state.
+        logger.info(`Aside (fresh fork from main) for session ${session.sessionId}: "${asideMessage}"`);
+        const result = await claudeCli.forkSession(
+          session.sessionId,
+          `[Aside from user — the main task is running in parallel; answer only this question and do not touch the main task state]: ${asideMessage}`,
+          session.workDir,
+        );
 
         if (!result.text.trim()) {
           await interaction.editReply('> **Aside:** Claude acknowledged but returned no text.');
