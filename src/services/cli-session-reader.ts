@@ -1,5 +1,5 @@
 import { readdir, open, stat } from 'node:fs/promises';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { CliSessionMeta, RecentActivity } from '../types.js';
@@ -31,12 +31,43 @@ export class CliSessionReader {
     return workDir.replace(/[/\\:]/g, '-');
   }
 
-  /** Convert a Claude CLI project directory name back to a workDir path. */
-  private projectPathToWorkDir(projectDirName: string): string {
-    // Reverse of workDirToProjectPath: replace - with the platform separator
-    // e.g. -Users-foo-workspace -> /Users/foo/workspace (Unix)
-    // e.g. C-Users-foo-workspace -> C\Users\foo\workspace (Windows)
-    return projectDirName.replace(/-/g, sep);
+  /**
+   * Resolve a Claude project directory name to its actual workDir.
+   *
+   * Source of truth is the `cwd` field on the first parseable JSONL entry in
+   * the project dir. The directory name itself (e.g. `-Users-foo-projects-2024`)
+   * is lossy — `-` collides with both path separators AND any `-` originally
+   * in the path — so we never reverse it directly.
+   *
+   * Cross-platform: works for Unix paths (`/Users/foo/...`) and Windows paths
+   * (`C:\Users\foo\...`). Returns null if the directory has no readable JSONL.
+   */
+  private async readWorkDirFromProject(projectDirName: string): Promise<string | null> {
+    const dir = join(this.claudeHome, 'projects', projectDirName);
+    const files = await readdir(dir).catch(() => [] as string[]);
+    const jsonl = files.find(f => f.endsWith('.jsonl'));
+    if (!jsonl) return null;
+
+    const filePath = join(dir, jsonl);
+    try {
+      const stream = createReadStream(filePath, { encoding: 'utf-8' });
+      const rl = createInterface({ input: stream, crlfDelay: Infinity });
+      try {
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line) as { cwd?: unknown };
+            if (typeof entry.cwd === 'string' && entry.cwd) return entry.cwd;
+          } catch { /* skip malformed */ }
+        }
+      } finally {
+        rl.close();
+        stream.destroy();
+      }
+    } catch (err) {
+      logger.debug(`readWorkDirFromProject(${projectDirName}) failed:`, err);
+    }
+    return null;
   }
 
   /** Get the full path to the project's session directory. */
@@ -137,7 +168,13 @@ export class CliSessionReader {
     const projectsDir = join(this.claudeHome, 'projects');
     try {
       const entries = await readdir(projectsDir);
-      return entries.map(name => this.projectPathToWorkDir(name));
+      // Resolve each via JSONL `cwd` rather than the lossy reverse function.
+      // Empty/unparseable dirs are filtered out — better to omit garbage than
+      // fabricate a wrong path.
+      const resolved = await Promise.all(
+        entries.map(async name => this.readWorkDirFromProject(name)),
+      );
+      return resolved.filter((w): w is string => Boolean(w));
     } catch (err: unknown) {
       const error = err as NodeJS.ErrnoException;
       if (error.code === 'ENOENT') return [];
@@ -169,7 +206,9 @@ export class CliSessionReader {
     const results = await Promise.allSettled(
       entries.map(async name => {
         const files = await readdir(join(projectsDir, name)).catch(() => [] as string[]);
-        return files.includes(`${sessionId}.jsonl`) ? this.projectPathToWorkDir(name) : null;
+        if (!files.includes(`${sessionId}.jsonl`)) return null;
+        // Read the actual workDir from the JSONL — directory name is lossy.
+        return this.readWorkDirFromProject(name);
       })
     );
 
