@@ -11,6 +11,7 @@ import type { ActivityTracker, SessionActivity } from './activity-tracker.js';
 import type { TaskController } from './task-controller.js';
 import type { CliSessionReader } from './cli-session-reader.js';
 import { splitMessage } from '../utils/split-message.js';
+import { formatUsageFooter } from '../utils/format-usage.js';
 import { logger } from '../utils/logger.js';
 
 export class MessageHandler {
@@ -124,6 +125,42 @@ export class MessageHandler {
           onToolComplete: () => {
             this.taskController.checkGracefulStop(sessionId);
           },
+          onAskQuestion: (q) => {
+            // Surface immediately — Claude is blocked waiting for an answer
+            // it can't get in headless mode. The user can /interrupt or just
+            // reply normally.
+            const lines: string[] = [];
+            lines.push('> 🤔 **Claude is asking you a question:**');
+            lines.push('>');
+            if (q.header) {
+              lines.push(`> **${q.header}** — ${q.question}`);
+            } else {
+              lines.push(`> ${q.question}`);
+            }
+            if (q.options.length > 0) {
+              lines.push('>');
+              q.options.forEach((opt, i) => {
+                const desc = opt.description ? ` — ${opt.description}` : '';
+                lines.push(`> ${i + 1}. **${opt.label}**${desc}`);
+              });
+            }
+            lines.push('>');
+            lines.push('> *Reply with your answer or use `/interrupt` to redirect.*');
+            channel.send(lines.join('\n')).catch(err => {
+              logger.warn('Failed to post AskUserQuestion to Discord:', err);
+            });
+          },
+          onMonitorStart: (m) => {
+            // Surface so the user knows why the bot looks "stuck" while
+            // a long Bash watcher runs in the background.
+            const cmdPreview = m.command.split('\n')[0].slice(0, 120);
+            const tag = m.persistent ? '*(persistent)*' : '*(blocking)*';
+            channel.send(
+              `> 🔭 **Monitor started ${tag}:** *${m.description}*\n> \`${cmdPreview}${m.command.length > 120 ? '…' : ''}\``,
+            ).catch(err => {
+              logger.warn('Failed to post Monitor start to Discord:', err);
+            });
+          },
         },
         abortController,
         workDir,
@@ -136,6 +173,7 @@ export class MessageHandler {
       this.taskController.remove(sessionId);
 
       const filesToSend = await this.collectAttachableFiles(result.text);
+      const usageFooter = formatUsageFooter(result);
 
       // Handle empty responses — build a summary from activity data
       if (!result.text.trim()) {
@@ -155,6 +193,7 @@ export class MessageHandler {
               await channel.send(summaryChunks[i]);
             }
           }
+          if (usageFooter) await channel.send(usageFooter);
         }
         return;
       }
@@ -168,6 +207,7 @@ export class MessageHandler {
           await channel.send(chunks[i]);
         }
       }
+      if (usageFooter) await channel.send(usageFooter);
 
       if (result.isError) {
         logger.warn(`Claude returned an error for session ${sessionId}: ${result.text}`);

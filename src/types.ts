@@ -75,12 +75,35 @@ export interface RecentActivity {
 
 // --- Claude CLI ---
 
+export interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreateTokens: number;
+}
+
 export interface CliResult {
   sessionId: string;
   text: string;
   isError: boolean;
   costUsd: number;
   durationMs: number;
+  usage?: UsageStats;
+}
+
+/** Argument shape for AskUserQuestion tool — surfaced to the user when Claude blocks for input. */
+export interface AskQuestionEvent {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: Array<{ label: string; description?: string }>;
+}
+
+/** Argument shape for Monitor tool — surfaced when Claude starts a long watcher. */
+export interface MonitorEvent {
+  description: string;
+  command: string;
+  persistent: boolean;
 }
 
 // --- Discord Commands ---

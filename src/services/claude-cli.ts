@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { Config } from '../types.js';
-import type { CliResult } from '../types.js';
+import type { CliResult, AskQuestionEvent, MonitorEvent, UsageStats } from '../types.js';
 import { logger } from '../utils/logger.js';
 
 const DISCORD_SYSTEM_PROMPT = [
@@ -90,6 +90,8 @@ export class ClaudeCli {
       onSkillUse?: (skillName: string) => void;
       onTodoUpdate?: (todos: Array<{ id: string; content: string; status: string }>) => void;
       onToolComplete?: () => void;
+      onAskQuestion?: (q: AskQuestionEvent) => void;
+      onMonitorStart?: (m: MonitorEvent) => void;
     },
     externalAbort?: AbortController,
     workDir?: string,
@@ -132,6 +134,16 @@ export class ClaudeCli {
         let totalSize = 0;
         const maxBuffer = 10 * 1024 * 1024;
         const stderrChunks: Buffer[] = [];
+
+        // Aggregate token usage across all assistant turns in this stream.
+        // Each tool-cycle adds another assistant event with its own usage block;
+        // summing gives the true cost of the whole exchange.
+        const usage: UsageStats = {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreateTokens: 0,
+        };
 
         child.stdout.on('data', (chunk: Buffer) => {
           buffer += chunk.toString();
@@ -178,6 +190,17 @@ export class ClaudeCli {
               // Assistant message — extract tool actions + keep last response text
               if (event.type === 'assistant' && event.message) {
                 const msg = event.message;
+
+                // Accumulate token usage for the final footer.
+                // Cache fields may be missing on older models — default to 0.
+                if (msg.usage && typeof msg.usage === 'object') {
+                  const u = msg.usage as Record<string, unknown>;
+                  usage.inputTokens += Number(u.input_tokens ?? 0);
+                  usage.outputTokens += Number(u.output_tokens ?? 0);
+                  usage.cacheReadTokens += Number(u.cache_read_input_tokens ?? 0);
+                  usage.cacheCreateTokens += Number(u.cache_creation_input_tokens ?? 0);
+                }
+
                 const blocks = Array.isArray(msg.content) ? msg.content
                   : typeof msg.content === 'string' ? [{ type: 'text', text: msg.content }]
                   : typeof msg === 'string' ? [{ type: 'text', text: msg }]
@@ -205,6 +228,21 @@ export class ClaudeCli {
                     // Track todo updates
                     if (block.name === 'TodoWrite' && Array.isArray(block.input?.todos)) {
                       callbacks.onTodoUpdate?.(block.input.todos);
+                    }
+
+                    // AskUserQuestion — Claude is blocking for an answer it can't get
+                    // in headless mode. Surface the question so the user can /interrupt
+                    // or send the answer as a message.
+                    if (block.name === 'AskUserQuestion' && block.input) {
+                      const q = this.parseAskQuestion(block.input as Record<string, unknown>);
+                      if (q && callbacks.onAskQuestion) callbacks.onAskQuestion(q);
+                    }
+
+                    // Monitor — Claude started a long-running watcher. Surface what's
+                    // being watched so the user knows why the bot looks "stuck".
+                    if (block.name === 'Monitor' && block.input) {
+                      const m = this.parseMonitor(block.input as Record<string, unknown>);
+                      if (m && callbacks.onMonitorStart) callbacks.onMonitorStart(m);
                     }
                   }
                 }
@@ -275,12 +313,17 @@ export class ClaudeCli {
             logger.debug('No result event in stream — using accumulated text');
           }
 
+          const hasAnyUsage =
+            usage.inputTokens || usage.outputTokens ||
+            usage.cacheReadTokens || usage.cacheCreateTokens;
+
           resolve({
             sessionId: resultSessionId,
             text: resultText,
             isError,
             costUsd,
             durationMs: Date.now() - startTime,
+            usage: hasAnyUsage ? usage : undefined,
           });
         });
       });
@@ -375,6 +418,54 @@ export class ClaudeCli {
       default:
         return undefined;
     }
+  }
+
+  /**
+   * Pull the first question + options out of an AskUserQuestion tool input.
+   * The tool can carry multiple questions; we surface only the first to keep
+   * the Discord output tractable. Returns null if the shape is unexpected.
+   */
+  private parseAskQuestion(input: Record<string, unknown>): AskQuestionEvent | null {
+    const questions = input.questions;
+    if (!Array.isArray(questions) || questions.length === 0) return null;
+    const first = questions[0];
+    if (!first || typeof first !== 'object') return null;
+    const f = first as Record<string, unknown>;
+    const question = typeof f.question === 'string' ? f.question : null;
+    if (!question) return null;
+
+    const options: AskQuestionEvent['options'] = [];
+    if (Array.isArray(f.options)) {
+      for (const opt of f.options) {
+        if (!opt || typeof opt !== 'object') continue;
+        const o = opt as Record<string, unknown>;
+        if (typeof o.label === 'string') {
+          options.push({
+            label: o.label,
+            description: typeof o.description === 'string' ? o.description : undefined,
+          });
+        }
+      }
+    }
+
+    return {
+      question,
+      header: typeof f.header === 'string' ? f.header : undefined,
+      multiSelect: f.multiSelect === true,
+      options,
+    };
+  }
+
+  /** Pull the description, command, and persistent flag out of a Monitor tool input. */
+  private parseMonitor(input: Record<string, unknown>): MonitorEvent | null {
+    const description = typeof input.description === 'string' ? input.description : null;
+    const command = typeof input.command === 'string' ? input.command : null;
+    if (!description || !command) return null;
+    return {
+      description,
+      command,
+      persistent: input.persistent === true,
+    };
   }
 
   /** Extract purpose/intent from Claude's text preceding a tool call. */
