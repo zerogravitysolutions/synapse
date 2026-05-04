@@ -1,7 +1,46 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import type { Config } from '../types.js';
 import type { CliResult, AskQuestionEvent, MonitorEvent, UsageStats, AgentStartEvent } from '../types.js';
 import { logger } from '../utils/logger.js';
+
+/**
+ * Resolve the executable to spawn so spawn() doesn't ENOENT on Windows.
+ *
+ * macOS / Linux: returns cliPath verbatim — single early-return, no filesystem
+ * touch, no dep, bit-identical to the pre-fix call. The macOS code path
+ * through this function is one comparison and one return statement.
+ *
+ * Windows: Node's spawn doesn't auto-resolve `.cmd`/`.bat` extensions, and
+ * npm-installed CLIs ship as `claude.cmd` (not `claude`). We probe filesystem
+ * (or PATH for bare names) for known extensions and return the first hit;
+ * fall back to `<cliPath>.cmd` so spawn fails with a more informative error
+ * than ENOENT if nothing exists.
+ */
+function resolveSpawnPath(cliPath: string): string {
+  if (process.platform !== 'win32') return cliPath;
+  // Already has an extension — trust the caller.
+  if (/\.(cmd|bat|exe|ps1)$/i.test(cliPath)) return cliPath;
+  // Absolute path: probe filesystem.
+  if (isAbsolute(cliPath)) {
+    for (const ext of ['.cmd', '.exe', '.bat']) {
+      if (existsSync(cliPath + ext)) return cliPath + ext;
+    }
+    return cliPath;
+  }
+  // Bare name like 'claude': probe PATH for each extension.
+  const pathEnv = process.env.PATH ?? '';
+  const dirs = pathEnv.split(';').filter(Boolean);
+  for (const ext of ['.cmd', '.exe', '.bat']) {
+    for (const dir of dirs) {
+      const candidate = `${dir}\\${cliPath}${ext}`;
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  // Last resort: `.cmd` is the standard npm-shim extension on Windows.
+  return cliPath + '.cmd';
+}
 
 const DISCORD_SYSTEM_PROMPT = [
   'You are responding inside a Discord channel. Format ALL responses for Discord:',
@@ -116,11 +155,13 @@ export class ClaudeCli {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
     const startTime = Date.now();
 
-    logger.debug(`Streaming: ${this.cliPath} ${args.join(' ')}`);
+    // No-op on macOS/Linux (returns cliPath unchanged); resolves .cmd/.exe on Windows.
+    const spawnPath = resolveSpawnPath(this.cliPath);
+    logger.debug(`Streaming: ${spawnPath} ${args.join(' ')}`);
 
     try {
       return await new Promise<CliResult>((resolve, reject) => {
-        const child = spawn(this.cliPath, args, {
+        const child = spawn(spawnPath, args, {
           cwd: workDir ?? this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, NO_COLOR: '1' },
@@ -564,11 +605,13 @@ export class ClaudeCli {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    logger.debug(`Executing: ${this.cliPath} ${args.join(' ')}`);
+    // No-op on macOS/Linux (returns cliPath unchanged); resolves .cmd/.exe on Windows.
+    const spawnPath = resolveSpawnPath(this.cliPath);
+    logger.debug(`Executing: ${spawnPath} ${args.join(' ')}`);
 
     try {
       const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawn(this.cliPath, args, {
+        const child = spawn(spawnPath, args, {
           cwd: workDir ?? this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: { ...process.env, NO_COLOR: '1' },
