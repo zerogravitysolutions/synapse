@@ -161,6 +161,19 @@ export class MessageHandler {
               logger.warn('Failed to post Monitor start to Discord:', err);
             });
           },
+          onAgentStart: (a) => {
+            // Sub-agents (Explore / general-purpose / etc.) often run for
+            // 30s+ before posting any visible tool call. Surface the start
+            // so the user knows reasoning is in flight.
+            const idShort = a.agentId.slice(0, 8);
+            const firstLine = a.prompt.split('\n')[0].slice(0, 200);
+            const more = a.prompt.length > 200 ? '…' : '';
+            channel.send(
+              `> 🤖 **Sub-agent started** *(${idShort})*\n> ${firstLine}${more}`,
+            ).catch(err => {
+              logger.warn('Failed to post sub-agent start to Discord:', err);
+            });
+          },
         },
         abortController,
         workDir,

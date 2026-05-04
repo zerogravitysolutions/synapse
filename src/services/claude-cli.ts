@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import type { Config } from '../types.js';
-import type { CliResult, AskQuestionEvent, MonitorEvent, UsageStats } from '../types.js';
+import type { CliResult, AskQuestionEvent, MonitorEvent, UsageStats, AgentStartEvent } from '../types.js';
 import { logger } from '../utils/logger.js';
 
 const DISCORD_SYSTEM_PROMPT = [
@@ -92,6 +92,7 @@ export class ClaudeCli {
       onToolComplete?: () => void;
       onAskQuestion?: (q: AskQuestionEvent) => void;
       onMonitorStart?: (m: MonitorEvent) => void;
+      onAgentStart?: (a: AgentStartEvent) => void;
     },
     externalAbort?: AbortController,
     workDir?: string,
@@ -145,6 +146,11 @@ export class ClaudeCli {
           cacheCreateTokens: 0,
         };
 
+        // Sub-agents emit many `agent_progress` events sharing one agentId.
+        // Surface a Discord callout only on the FIRST event for each agent
+        // (the one carrying the prompt); subsequent events update activity.
+        const seenAgentIds = new Set<string>();
+
         child.stdout.on('data', (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
@@ -185,6 +191,59 @@ export class ClaudeCli {
                 if (toolName) currentToolName = toolName;
                 const desc = event.description ?? this.describeToolUse(toolName);
                 onActivity(desc, toolName);
+              }
+
+              // Progress events — emitted by the CLI itself (not the model) for
+              // sub-agents, hooks, and web search. These were silently dropped
+              // before, leaving the bot looking idle while a sub-agent ran.
+              // Dispatch on `data.type` (the real discriminator — `subtype` is null).
+              if (event.type === 'progress' && event.data && typeof event.data === 'object') {
+                const pd = event.data as Record<string, unknown>;
+                const pType = typeof pd.type === 'string' ? pd.type : '';
+
+                if (pType === 'agent_progress') {
+                  const agentId = typeof pd.agentId === 'string' ? pd.agentId : '';
+                  const prompt = typeof pd.prompt === 'string' ? pd.prompt : '';
+                  // First event for this agent carries the prompt — surface it.
+                  if (agentId && !seenAgentIds.has(agentId)) {
+                    seenAgentIds.add(agentId);
+                    if (prompt && callbacks.onAgentStart) {
+                      callbacks.onAgentStart({ agentId, prompt });
+                    }
+                    if (prompt) {
+                      const short = prompt.split('\n')[0].slice(0, 80);
+                      onActivity(`🤖 Sub-agent started: ${short}`);
+                    } else {
+                      onActivity(`🤖 Sub-agent ${agentId.slice(0, 8)} started`);
+                    }
+                  } else {
+                    // Subsequent events — try to extract what the sub-agent is doing
+                    const inner = (pd.message as Record<string, unknown> | undefined)?.message as
+                      | Record<string, unknown> | undefined;
+                    const innerContent = Array.isArray(inner?.content) ? inner!.content : [];
+                    const tool = innerContent.find((b: unknown) =>
+                      typeof b === 'object' && b !== null && (b as Record<string, unknown>).type === 'tool_use',
+                    ) as Record<string, unknown> | undefined;
+                    const idShort = agentId.slice(0, 8);
+                    if (tool && typeof tool.name === 'string') {
+                      onActivity(`🤖 Sub-agent ${idShort}: ${this.describeToolUse(tool.name, tool.input as Record<string, unknown>)}`);
+                    } else {
+                      onActivity(`🤖 Sub-agent ${idShort}: working`);
+                    }
+                  }
+                } else if (pType === 'hook_progress') {
+                  // Hooks fire frequently (PreToolUse / PostToolUse on every call) —
+                  // update activity but never spam Discord.
+                  const hookName = typeof pd.hookName === 'string' ? pd.hookName : 'unknown';
+                  onActivity(`🪝 Hook: ${hookName}`);
+                } else if (pType === 'query_update') {
+                  const q = typeof pd.query === 'string' ? pd.query : '';
+                  if (q) onActivity(`🔎 Searching: "${q.slice(0, 60)}"`);
+                } else if (pType === 'search_results_received') {
+                  const q = typeof pd.query === 'string' ? pd.query : '';
+                  const n = typeof pd.resultCount === 'number' ? pd.resultCount : 0;
+                  onActivity(`🔎 ${n} result${n === 1 ? '' : 's'} for "${q.slice(0, 50)}"`);
+                }
               }
 
               // Assistant message — extract tool actions + keep last response text

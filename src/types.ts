@@ -106,6 +106,14 @@ export interface MonitorEvent {
   persistent: boolean;
 }
 
+/** Surfaced when a sub-agent (Agent/Explore/etc.) starts running.
+ *  Built from the first `progress` event with `data.type === 'agent_progress'`
+ *  for a given agentId — that initial event carries the agent's full prompt. */
+export interface AgentStartEvent {
+  agentId: string;
+  prompt: string;
+}
+
 // --- Discord Commands ---
 
 export interface Command {
