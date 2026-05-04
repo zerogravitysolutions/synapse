@@ -25,9 +25,15 @@ import { setModelCommand } from './commands/set-model.js';
 import { setEffortCommand } from './commands/set-effort.js';
 import { webhookCommand } from './commands/webhook.js';
 import { logger } from './utils/logger.js';
+import { pruneOldUploads } from './utils/prune-uploads.js';
 
 async function main() {
   const config = loadConfig();
+
+  // Best-effort cleanup of stale Discord-attachment tempfiles before
+  // anything else. Cross-platform: tmpdir() resolves to /tmp on Linux,
+  // /var/folders/.../T on macOS, and %TEMP% on Windows.
+  await pruneOldUploads().catch(err => logger.warn('Upload prune failed:', err));
 
   // Initialize services
   const claudeCli = new ClaudeCli(config);
