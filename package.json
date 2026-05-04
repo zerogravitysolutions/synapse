@@ -12,7 +12,8 @@
     "pm2:stop": "pm2 stop mindbridge",
     "pm2:restart": "pm2 restart mindbridge",
     "pm2:logs": "pm2 logs mindbridge",
-    "pm2:setup": "pm2 start dist/index.js --name mindbridge && pm2 save && pm2 startup"
+    "pm2:setup": "pm2 start dist/index.js --name mindbridge && pm2 save && pm2 startup",
+    "pm2:setup:windows": "pm2 start dist/index.js --name mindbridge && pm2 save && pm2-startup install"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
