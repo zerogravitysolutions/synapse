@@ -356,11 +356,20 @@ export class MessageHandler {
   }
 
   private async collectAttachableFiles(text: string): Promise<string[]> {
-    // Match Unix paths (/path/to/file.ext) and Windows paths (C:\path\to\file.ext)
-    const FILE_PATH_RE = /(?:\/[\w\-.\/]+\.\w+|[A-Z]:[\\\/][\w\-.\\\/]+\.\w+)\b/gi;
+    // Three patterns, all anchored by a literal `.ext` suffix:
+    //   1. `backticked` — captures spaces, common when Claude shows file paths
+    //   2. "double-quoted" — same idea, less common
+    //   3. bare — original \w-only character class, identical pre-fix behavior
+    // Bare matching is preserved verbatim so existing macOS/Linux output (no
+    // spaces in paths) keeps producing the same attachments. The Set dedupes
+    // when the same path appears both bare and quoted in one response.
+    const FILE_PATH_RE =
+      /`((?:\/|[A-Z]:[\\/])[^`\n]+?\.\w+)`|"((?:\/|[A-Z]:[\\/])[^"\n]+?\.\w+)"|((?:\/[\w\-.\/]+\.\w+|[A-Z]:[\\/][\w\-.\\/]+\.\w+))\b/gi;
 
     const matches = [...text.matchAll(FILE_PATH_RE)];
-    const candidates = [...new Set(matches.map(m => m[0]))];
+    const candidates = [
+      ...new Set(matches.map(m => m[1] ?? m[2] ?? m[3]).filter((s): s is string => Boolean(s))),
+    ];
 
     const files: string[] = [];
     let totalSize = 0;
