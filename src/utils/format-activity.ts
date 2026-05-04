@@ -28,6 +28,18 @@ export function formatActivity(activity: SessionActivity): string {
       return `- [ ] ${t.content}`;
     });
     paragraphs.push(`**Tasks:**\n${todoLines.join('\n')}`);
+  } else if (activity.actionLog.length > 0) {
+    // Synthesize a plan from the action log when Claude skipped TodoWrite —
+    // gives the user structure even on ad-hoc one-step sessions. Show the
+    // last 8 actions so the section stays scannable in Discord.
+    const recent = activity.actionLog.slice(-8);
+    const lines: string[] = [];
+    for (let i = 0; i < recent.length - 1; i++) {
+      lines.push(`- [x] ~~${recent[i].description}~~`);
+    }
+    const latest = recent[recent.length - 1];
+    lines.push(`- [ ] **${latest.description}** *(in progress)*`);
+    paragraphs.push(`**Steps so far** *(inferred — Claude didn't call TodoWrite)*:\n${lines.join('\n')}`);
   }
 
   // Tools + skills

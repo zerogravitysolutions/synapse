@@ -14,9 +14,11 @@ const DISCORD_SYSTEM_PROMPT = [
   '- NEVER end your response with a todo list or checklist. If you need to show todos or next steps, place them BEFORE your final summary or conclusion.',
   '- Always end your response with a well-formatted markdown summary or conclusion. The last thing the user reads should be a clear, polished wrap-up — not a raw list, dangling bullet points, or incomplete thoughts.',
   '',
-  'Task planning:',
-  '- ALWAYS create a todo list (using TodoWrite) before starting any work. Think thoroughly about the steps needed.',
-  '- Update the todo list as you progress — mark items complete, add new ones, remove unnecessary ones.',
+  'Task planning (STRICT — no exceptions):',
+  '- You MUST call TodoWrite as your FIRST action on EVERY user message, even for one-step or trivial requests.',
+  '- The user sees this list as their progress view in /ping. Skipping TodoWrite leaves them blind to what you are doing.',
+  '- For trivial single-step requests, still create a one-item todo and mark it in_progress before acting.',
+  '- Update the list as you progress: mark items completed, add new items as discovered, remove ones no longer relevant.',
   '- The todo list should reflect your current plan at all times.',
   '',
   'Long-running commands:',
@@ -279,6 +281,14 @@ export class ClaudeCli {
                     const purpose = this.extractPurpose(lastTextBlock);
                     onActivity(desc, block.name, purpose ?? undefined);
 
+                    // Goal fallback — when Claude jumps straight to a tool without
+                    // emitting a text block first, the input's `description` field
+                    // (Bash/Edit/Write/Read all carry one) becomes the goal.
+                    // setGoal is idempotent — only the FIRST description sticks.
+                    if (typeof block.input?.description === 'string' && block.input.description.trim()) {
+                      onGoal(block.input.description.trim());
+                    }
+
                     // Track skill invocations
                     if (block.name === 'Skill' && block.input?.skill) {
                       callbacks.onSkillUse?.(String(block.input.skill));
@@ -443,9 +453,16 @@ export class ClaudeCli {
         return fp ? `Writing \`${shorten(fp)}\`` : undefined;
       }
       case 'Bash': {
+        // Prefer Claude's own `description` — always more readable than the raw
+        // command, especially for heredocs where the first line is just `<<EOF`
+        // and reveals nothing about what's actually being run.
+        const desc = input.description as string | undefined;
+        if (typeof desc === 'string' && desc.trim()) {
+          return desc.trim();
+        }
         const cmd = input.command as string | undefined;
         if (!cmd) return undefined;
-        // Strip comments and empty lines, take the first real command
+        // Fallback: first non-comment line of the command.
         const meaningful = cmd.split('\n')
           .map(l => l.trim())
           .filter(l => l && !l.startsWith('#'))[0] ?? cmd.split('\n')[0];
